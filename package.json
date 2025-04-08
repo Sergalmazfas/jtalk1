@@ -1,0 +1,27 @@
+{
+  "name": "g-talk",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "@google-cloud/speech": "^5.0.0",
+    "@google-cloud/translate": "^7.0.0",
+    "@google-cloud/vertexai": "^0.4.0",
+    "@types/twilio": "^3.19.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.18.2",
+    "twilio": "^5.5.2",
+    "ws": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/dotenv": "^6.1.1",
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.14.0",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^4.9.5"
+  }
+}
