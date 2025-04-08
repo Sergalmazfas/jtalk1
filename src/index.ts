@@ -14,7 +14,7 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 const router = Router();
-const port = process.env.PORT || 8085;
+const port = process.env.PORT || 8080;
 
 // Initialize WebSocket server
 const wss = new WebSocketServer({ port: 8086 });
@@ -338,5 +338,5 @@ app.use('/', router);
 
 // Start the server
 app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+  console.log(`Server listening on port ${port}`);
 }); 
