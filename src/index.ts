@@ -5,7 +5,9 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import { createServer } from 'http';
 import { initTwilioService, makeCall, handleCall, getActiveCalls, getCall } from './twilioService';
+import { createDialog, addMessage, addTranscription, endDialog, getDialog, getAllDialogs } from './services/dialogService';
 import VoiceResponse = require('twilio/lib/twiml/VoiceResponse');
 
 // Load environment variables
@@ -16,8 +18,11 @@ const app = express();
 const router = Router();
 const port = process.env.PORT || 8080;
 
+// Create HTTP server
+const server = createServer(app);
+
 // Initialize WebSocket server
-const wss = new WebSocketServer({ port: 8086 });
+const wss = new WebSocketServer({ server });
 
 // Initialize Google Speech-to-Text client
 const speechClient = new SpeechClient();
@@ -35,33 +40,203 @@ const audioBuffers = new Map<string, Buffer[]>();
 initTwilioService();
 
 // Serve static files
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Parse JSON bodies
 app.use(express.json());
 
-// Parse URL-encoded bodies
-app.use(express.urlencoded({ extended: true }));
+// Parse URL-encoded bodies (required for Twilio webhooks)
+app.use(express.urlencoded({ extended: false }));
+
+// Mount the router
+app.use('/api', router);
+
+// Handle Twilio webhook
+app.post('/twilio-webhook', (req, res) => {
+  console.log('Received Twilio webhook request headers:', req.headers);
+  console.log('Received Twilio webhook body:', req.body);
+  
+  if (!req.body.CallSid) {
+    console.error('Missing CallSid in webhook request');
+    return res.status(400).send('Missing CallSid');
+  }
+  
+  const twiml = new VoiceResponse();
+  
+  // Create a new dialog for this call
+  const callSid = req.body.CallSid;
+  createDialog(callSid);
+  
+  // Add greeting message
+  twiml.say({
+    voice: 'alice',
+    language: 'ru-RU'
+  }, 'Здравствуйте, вы позвонили в TalkHint. Пожалуйста, говорите после сигнала.');
+  
+  // Add recording with transcription
+  twiml.record({
+    timeout: 5,
+    maxLength: 30,
+    transcribe: true,
+    transcribeCallback: '/api/transcription-complete',
+    action: '/api/recording-complete',
+    method: 'POST'
+  });
+  
+  const response = twiml.toString();
+  console.log('Sending TwiML response:', response);
+  
+  res.type('text/xml');
+  res.send(response);
+});
+
+// Handle recording completion
+app.post('/api/recording-complete', async (req, res) => {
+  console.log('Recording completed:', req.body);
+  
+  const twiml = new VoiceResponse();
+  twiml.say({
+    voice: 'alice',
+    language: 'ru-RU'
+  }, 'Спасибо за ваш звонок. До свидания!');
+  
+  // End the dialog
+  const callSid = req.body.CallSid;
+  endDialog(callSid);
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// Handle transcription completion
+app.post('/api/transcription-complete', async (req, res) => {
+  try {
+    const { RecordingSid, RecordingUrl, TranscriptionText, CallSid } = req.body;
+    console.log('Transcription received:', { RecordingSid, RecordingUrl, TranscriptionText });
+    
+    // Add transcription to dialog
+    const segment = addTranscription(CallSid, TranscriptionText, true);
+    
+    // Broadcast to all connected clients
+    broadcastToClients({
+      type: 'transcription',
+      data: segment
+    });
+    
+    // Process with Google Speech-to-Text for better accuracy
+    if (RecordingUrl) {
+      const [response] = await speechClient.recognize({
+        audio: {
+          uri: RecordingUrl
+        },
+        config: {
+          encoding: 'LINEAR16',
+          sampleRateHertz: 8000,
+          languageCode: 'ru-RU',
+          model: 'phone_call'
+        }
+      });
+      
+      const transcription = response.results
+        ?.map(result => result.alternatives?.[0]?.transcript)
+        .join('\n');
+      
+      if (transcription) {
+        // Add message to dialog
+        const message = await addMessage(CallSid, 'guest', transcription);
+        
+        // Broadcast to all connected clients
+        broadcastToClients({
+          type: 'message',
+          data: message
+        });
+      }
+    }
+    
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error processing transcription:', error);
+    res.sendStatus(500);
+  }
+});
+
+// WebSocket connection handler
+wss.on('connection', (ws: WebSocket) => {
+  const id = uuidv4();
+  connections.set(id, ws);
+  
+  ws.on('message', (message: string) => {
+    try {
+      const data = JSON.parse(message);
+      // Handle WebSocket messages
+    } catch (error) {
+      console.error('Error handling WebSocket message:', error);
+    }
+  });
+  
+  ws.on('close', () => {
+    connections.delete(id);
+  });
+});
+
+// Broadcast to all connected clients
+function broadcastToClients(message: any) {
+  const data = JSON.stringify(message);
+  connections.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(data);
+    }
+  });
+}
 
 // Handle incoming calls
 const handleIncomingCall: RequestHandler = (req, res, next) => {
   try {
+    console.log('Received call request:', req.body);
+    
     const { to, webhookUrl } = req.body;
     
     if (!to || !webhookUrl) {
-      res.status(400).json({ error: 'Missing required parameters' });
+      console.error('Missing required parameters:', { to, webhookUrl });
+      res.status(400).json({ 
+        error: 'Missing required parameters',
+        details: {
+          to: to ? 'present' : 'missing',
+          webhookUrl: webhookUrl ? 'present' : 'missing'
+        }
+      });
       return;
     }
     
+    console.log('Initiating call with parameters:', { to, webhookUrl });
+    
     makeCall(to, webhookUrl)
-      .then(callSid => res.json({ callSid }))
+      .then(callSid => {
+        console.log('Call initiated successfully:', { callSid });
+        res.json({ callSid });
+      })
       .catch(error => {
-        console.error('Error handling call:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('Error handling call:', {
+          error: error.message,
+          stack: error.stack,
+          to,
+          webhookUrl
+        });
+        res.status(500).json({ 
+          error: 'Internal server error',
+          details: error.message
+        });
       });
   } catch (error) {
-    console.error('Error handling call:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error handling call request:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      body: req.body
+    });
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 };
 
@@ -84,44 +259,6 @@ const handleVoiceWebhook: RequestHandler = (req, res, next) => {
   
   res.type('text/xml');
   res.send(twiml.toString());
-};
-
-// Handle recording completion
-const handleRecordingComplete: RequestHandler = (req, res, next) => {
-  const twiml = new VoiceResponse();
-  
-  // Add a <Say> verb to acknowledge recording completion
-  twiml.say('Thank you for your message. Goodbye!');
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
-};
-
-// Handle transcription completion
-const handleTranscriptionComplete: RequestHandler = async (req, res, next) => {
-  try {
-    const { RecordingSid, RecordingUrl, TranscriptionText } = req.body;
-    
-    console.log(`Transcription received for recording ${RecordingSid}: ${TranscriptionText}`);
-    
-    // Store the transcription
-    const transcriptionPath = path.join(__dirname, '../data/transcriptions', `${RecordingSid}.txt`);
-    
-    // Ensure the transcriptions directory exists
-    if (!fs.existsSync(path.dirname(transcriptionPath))) {
-      fs.mkdirSync(path.dirname(transcriptionPath), { recursive: true });
-    }
-    
-    // Save the transcription
-    fs.writeFileSync(transcriptionPath, TranscriptionText || '');
-    
-    console.log(`Transcription saved to ${transcriptionPath}`);
-    
-    res.sendStatus(200);
-  } catch (error) {
-    console.error('Error handling transcription:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
 };
 
 // Handle call status updates
@@ -232,111 +369,74 @@ const handleGetCall: RequestHandler = (req, res, next) => {
   res.json({ callSid, ...call });
 };
 
-// WebSocket connection handler
-wss.on('connection', (ws: WebSocket) => {
-  const connectionId = uuidv4();
-  connections.set(connectionId, ws);
+// Handle voice fallback webhook
+const handleVoiceFallback: RequestHandler = (req, res, next) => {
+  const twiml = new VoiceResponse();
   
-  console.log(`New WebSocket connection: ${connectionId}`);
+  // Add a simple fallback message
+  twiml.say('We are experiencing technical difficulties. Please try again later.');
   
-  // Create recognition stream
-  const recognitionStream = speechClient
-    .streamingRecognize({
-      config: {
-        encoding: 'LINEAR16',
-        sampleRateHertz: 16000,
-        languageCode: 'en-US',
-        model: 'phone_call',
-        useEnhanced: true,
-      },
-      interimResults: true,
-    })
-    .on('error', (error) => {
-      console.error('Recognition stream error:', error);
-      cleanupConnection(connectionId);
-    })
-    .on('data', (data) => {
-      const transcript = data.results[0]?.alternatives[0]?.transcript || '';
-      
-      if (data.results[0]?.isFinal) {
-        ws.send(JSON.stringify({
-          type: 'transcript',
-          text: transcript,
-          isFinal: true,
-        }));
-      } else {
-        ws.send(JSON.stringify({
-          type: 'transcript',
-          text: transcript,
-          isFinal: false,
-        }));
-      }
+  res.type('text/xml');
+  res.send(twiml.toString());
+};
+
+// Handle transcription complete webhook
+const handleTranscriptionComplete: RequestHandler = (req, res, next) => {
+  try {
+    const {
+      CallSid,
+      TranscriptionSid,
+      TranscriptionText,
+      TranscriptionStatus,
+      TranscriptionUrl,
+      RecordingSid,
+      RecordingUrl
+    } = req.body;
+    
+    console.log(`Transcription complete for call ${CallSid}:`, {
+      status: TranscriptionStatus,
+      text: TranscriptionText,
+      url: TranscriptionUrl
     });
-  
-  recognitionStreams.set(connectionId, recognitionStream);
-  audioBuffers.set(connectionId, []);
-  
-  // Handle incoming messages
-  ws.on('message', async (message) => {
-    try {
-      const data = JSON.parse(message.toString());
-      
-      if (data.type === 'audio') {
-        const audioBuffer = Buffer.from(data.audio, 'base64');
-        audioBuffers.get(connectionId)?.push(audioBuffer);
-        
-        try {
-          recognitionStream.write(audioBuffer);
-        } catch (error) {
-          console.error('Error writing to recognition stream:', error);
-          // Buffer the audio data for later
-          audioBuffers.get(connectionId)?.push(audioBuffer);
-        }
-      }
-    } catch (error) {
-      console.error('Error handling WebSocket message:', error);
+    
+    // Add transcription to dialog
+    if (TranscriptionText) {
+      addTranscription(CallSid, TranscriptionText, true);
     }
-  });
-  
-  // Handle connection close
-  ws.on('close', () => {
-    console.log(`WebSocket connection closed: ${connectionId}`);
-    cleanupConnection(connectionId);
-  });
+    
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error handling transcription complete:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Handle Twilio call status updates
+app.post('/call-status', (req, res) => {
+  console.log('Twilio status callback:', req.body);
+  res.status(200).send('OK');
 });
 
-// Cleanup function
-function cleanupConnection(connectionId: string) {
-  const ws = connections.get(connectionId);
-  const recognitionStream = recognitionStreams.get(connectionId);
-  
-  if (ws) {
-    ws.close();
-    connections.delete(connectionId);
-  }
-  
-  if (recognitionStream) {
-    recognitionStream.destroy();
-    recognitionStreams.delete(connectionId);
-  }
-  
-  audioBuffers.delete(connectionId);
-}
-
-// Register routes
+// Handle incoming calls
 router.post('/call', handleIncomingCall);
-router.post('/call-status', handleCallStatus);
 router.post('/voice', handleVoiceWebhook);
-router.post('/recording-complete', handleRecordingComplete);
-router.post('/transcription-complete', handleTranscriptionComplete);
+router.post('/voice-fallback', handleVoiceFallback);
+router.post('/call-status', handleCallStatus);
 router.post('/recording-status', handleRecordingStatus);
+router.post('/transcription-complete', handleTranscriptionComplete);
 router.get('/calls', handleGetActiveCalls);
 router.get('/calls/:callSid', handleGetCall);
 
-// Use the router
-app.use('/', router);
-
 // Start the server
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
+server.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+  console.log('Available routes:');
+  console.log('POST /api/call - Make a call');
+  console.log('POST /api/voice - Handle voice webhook');
+  console.log('POST /api/voice-fallback - Handle voice fallback');
+  console.log('POST /api/call-status - Handle call status');
+  console.log('POST /api/recording-status - Handle recording status');
+  console.log('POST /api/transcription-complete - Handle transcription complete');
+  console.log('GET /api/calls - Get all calls');
+  console.log('GET /api/calls/:callSid - Get specific call');
 }); 

@@ -3,6 +3,7 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
 import { SpeechClient } from '@google-cloud/speech';
+import { IncomingPhoneNumberContextUpdateOptions } from 'twilio/lib/rest/api/v2010/account/incomingPhoneNumber';
 
 // Load environment variables
 dotenv.config();
@@ -57,12 +58,32 @@ async function configurePhoneNumber() {
     if (phoneNumber) {
       await client.incomingPhoneNumbers(phoneNumber.sid)
         .update({
+          // Primary handler for incoming calls
           voiceUrl: `${webhookUrl}/voice`,
           voiceMethod: 'POST',
+          
+          // Fallback URL if primary handler fails
+          voiceFallbackUrl: `${webhookUrl}/voice-fallback`,
+          voiceFallbackMethod: 'POST',
+          
+          // Call status changes
           statusCallback: `${webhookUrl}/call-status`,
           statusCallbackMethod: 'POST',
-          statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-        });
+          statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed', 'failed', 'busy', 'no-answer'],
+          
+          // Caller Name Lookup
+          callerIdLookup: true,
+          
+          // Recording configuration
+          recordingStatusCallback: `${webhookUrl}/recording-status`,
+          recordingStatusCallbackMethod: 'POST',
+          recordingStatusCallbackEvent: ['completed', 'failed'],
+          
+          // Transcription configuration
+          transcribe: true,
+          transcribeCallback: `${webhookUrl}/transcription-complete`,
+          transcribeCallbackMethod: 'POST'
+        } as IncomingPhoneNumberContextUpdateOptions);
       console.log('✅ Phone number configured for voice webhooks');
     } else {
       console.error('❌ Phone number not found in your Twilio account');
@@ -80,23 +101,43 @@ async function configurePhoneNumber() {
  */
 export async function makeCall(to: string, webhookUrl: string): Promise<string> {
   try {
+    console.log('Making call with parameters:', {
+      to,
+      from: twilioNumber,
+      webhookUrl,
+      accountSid: accountSid ? 'present' : 'missing',
+      authToken: authToken ? 'present' : 'missing',
+      twilioNumber: twilioNumber ? 'present' : 'missing'
+    });
+
+    if (!accountSid || !authToken || !twilioNumber) {
+      throw new Error('Missing required Twilio credentials');
+    }
+
+    const baseUrl = 'https://talkhint-backend-637190449180.us-central1.run.app';
     const call = await client.calls.create({
       to,
       from: twilioNumber,
-      url: `${webhookUrl}/voice`,
-      statusCallback: `${webhookUrl}/call-status`,
+      url: `${baseUrl}/twilio-webhook`,
+      statusCallback: `${baseUrl}/call-status`,
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       statusCallbackMethod: 'POST',
       record: true,
-      recordingStatusCallback: `${webhookUrl}/recording-status`,
+      recordingStatusCallback: `${baseUrl}/recording-status`,
       recordingStatusCallbackEvent: ['completed'],
       recordingStatusCallbackMethod: 'POST',
     });
     
-    console.log(`Call initiated to ${to}, SID: ${call.sid}`);
+    console.log(`Call initiated successfully to ${to}, SID: ${call.sid}`);
     return call.sid;
   } catch (error) {
-    console.error('Error making call:', error);
+    console.error('Error making call:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      to,
+      from: twilioNumber,
+      webhookUrl
+    });
     throw error;
   }
 }

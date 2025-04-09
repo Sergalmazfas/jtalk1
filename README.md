@@ -279,6 +279,108 @@ npm run dev
    - Добавление поддержки других языков
    - Расширение функциональности для групповых бесед
 
+# TalkHint Project
+
+## Security Guidelines
+
+### Environment Variables and Secrets
+- Never commit `.env` files or any files containing secrets
+- Use `.env.example` as a template for required environment variables
+- Store production secrets in Google Cloud Secret Manager
+- Rotate secrets regularly
+- Use different secrets for development and production environments
+
+### GitHub Security
+- Never commit credentials or API keys
+- Use `.gitignore` to prevent accidental commits of sensitive files
+- Review all commits before pushing
+- Use branch protection rules
+- Enable two-factor authentication for GitHub accounts
+
+### Google Cloud Security
+- Store service account keys securely
+- Use minimal IAM permissions
+- Enable audit logging
+- Regularly review service account permissions
+- Use Secret Manager for sensitive data
+
+## Setup Instructions
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-org/talkhint.git
+   cd talkhint
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Set up environment variables:
+   - Copy `.env.example` to `.env`
+   - Fill in the required values
+   - Never commit `.env` file
+
+4. Set up Google Cloud:
+   - Create a new project in Google Cloud Console
+   - Enable required APIs
+   - Create service account and download key
+   - Store key securely (not in repository)
+
+5. Set up secrets in Google Cloud Secret Manager:
+   ```bash
+   # Example commands for setting up secrets
+   gcloud secrets create TWILIO_AUTH_TOKEN --replication-policy="automatic"
+   gcloud secrets versions add TWILIO_AUTH_TOKEN --data-file="/path/to/secret.txt"
+   ```
+
+## Development Workflow
+
+1. Create a new branch for your feature:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+2. Make changes and test locally
+
+3. Commit changes:
+   ```bash
+   git add .
+   git commit -m "Description of changes"
+   ```
+
+4. Push to GitHub:
+   ```bash
+   git push origin feature/your-feature-name
+   ```
+
+5. Create a Pull Request
+
+## Deployment
+
+1. Ensure all tests pass
+2. Review security implications
+3. Deploy to Google Cloud Run:
+   ```bash
+   gcloud run deploy talkhint --source .
+   ```
+
+## Security Checklist
+
+- [ ] No secrets in code or configuration files
+- [ ] Environment variables properly set
+- [ ] Google Cloud permissions reviewed
+- [ ] Service account keys secured
+- [ ] Dependencies updated and secure
+- [ ] Security headers configured
+- [ ] SSL/TLS enabled
+- [ ] Regular security audits scheduled
+
+## Contact
+
+For security concerns, please contact the security team at security@your-org.com
+
 ```bash
 npm install
 npm run dev---
