@@ -1,12 +1,12 @@
 import express, { Request, Response, Router, RequestHandler } from 'express';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocket, Server as WebSocketServer } from 'ws';
 import { SpeechClient } from '@google-cloud/speech';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { createServer } from 'http';
-import { initTwilioService, makeCall, handleCall, getActiveCalls, getCall } from './twilioService';
+import { initTwilioService, makeCall, handleCall, getActiveCalls, getCall, endCall, verifyTwilioCredentials } from './twilioService';
 import { createDialog, addMessage, addTranscription, endDialog, getDialog, getAllDialogs } from './services/dialogService';
 import VoiceResponse = require('twilio/lib/twiml/VoiceResponse');
 
@@ -16,13 +16,53 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 const router = Router();
-const port = process.env.PORT || 8080;
+const port = 8080; // Fixed port for Cloud Run
+const host = '0.0.0.0'; // Fixed host for Cloud Run
+
+// Enable CORS
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Add security headers
+app.use((req, res, next) => {
+  res.header('X-Content-Type-Options', 'nosniff');
+  res.header('X-Frame-Options', 'DENY');
+  res.header('X-XSS-Protection', '1; mode=block');
+  res.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
 
 // Create HTTP server
 const server = createServer(app);
 
-// Initialize WebSocket server
-const wss = new WebSocketServer({ server });
+// Initialize WebSocket server with proper upgrade handling
+const wss = new WebSocketServer({ 
+  server,
+  path: '/ws',
+  perMessageDeflate: {
+    zlibDeflateOptions: {
+      chunkSize: 1024,
+      memLevel: 7,
+      level: 3
+    },
+    zlibInflateOptions: {
+      chunkSize: 10 * 1024
+    },
+    clientNoContextTakeover: true,
+    serverNoContextTakeover: true,
+    serverMaxWindowBits: 10,
+    concurrencyLimit: 10,
+    threshold: 1024
+  }
+});
 
 // Initialize Google Speech-to-Text client
 const speechClient = new SpeechClient();
@@ -53,8 +93,11 @@ app.use('/api', router);
 
 // Handle Twilio webhook
 app.post('/twilio-webhook', (req, res) => {
-  console.log('Received Twilio webhook request headers:', req.headers);
-  console.log('Received Twilio webhook body:', req.body);
+  console.log('Received Twilio webhook request:', {
+    headers: req.headers,
+    body: req.body,
+    timestamp: new Date().toISOString()
+  });
   
   if (!req.body.CallSid) {
     console.error('Missing CallSid in webhook request');
@@ -78,8 +121,8 @@ app.post('/twilio-webhook', (req, res) => {
     timeout: 5,
     maxLength: 30,
     transcribe: true,
-    transcribeCallback: '/api/transcription-complete',
-    action: '/api/recording-complete',
+    transcribeCallback: `${process.env.WEBHOOK_URL}/api/transcription-complete`,
+    action: `${process.env.WEBHOOK_URL}/api/recording-complete`,
     method: 'POST'
   });
   
@@ -94,90 +137,215 @@ app.post('/twilio-webhook', (req, res) => {
 app.post('/api/recording-complete', async (req, res) => {
   console.log('Recording completed:', req.body);
   
-  const twiml = new VoiceResponse();
-  twiml.say({
-    voice: 'alice',
-    language: 'ru-RU'
-  }, 'Спасибо за ваш звонок. До свидания!');
+  const { CallSid, RecordingUrl, RecordingDuration } = req.body;
   
-  // End the dialog
-  const callSid = req.body.CallSid;
-  endDialog(callSid);
+  if (!CallSid || !RecordingUrl) {
+    console.error('Missing required parameters in recording webhook:', req.body);
+    return res.status(400).send('Missing required parameters');
+  }
   
-  res.type('text/xml');
-  res.send(twiml.toString());
+  try {
+    // Process recording with Google Speech-to-Text
+    const [response] = await speechClient.recognize({
+      audio: {
+        uri: RecordingUrl
+      },
+      config: {
+        encoding: 'LINEAR16',
+        sampleRateHertz: 8000,
+        languageCode: 'ru-RU',
+        model: 'phone_call'
+      }
+    });
+    
+    const transcription = response.results
+      ?.map(result => result.alternatives?.[0]?.transcript)
+      .join('\n');
+    
+    if (transcription) {
+      // Add transcription to dialog
+      await addTranscription(CallSid, transcription);
+      
+      // Send transcription to connected clients
+      const ws = connections.get(CallSid);
+      if (ws) {
+        ws.send(JSON.stringify({
+          type: 'transcription',
+          text: transcription,
+          isFinal: true
+        }));
+      }
+    }
+    
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('Error handling recording:', error);
+    res.status(500).send('Internal server error');
+  }
 });
 
 // Handle transcription completion
 app.post('/api/transcription-complete', async (req, res) => {
+  console.log('Transcription completed:', req.body);
+  
+  const { CallSid, TranscriptionText, TranscriptionStatus } = req.body;
+  
+  if (!CallSid || !TranscriptionText) {
+    console.error('Missing required parameters in transcription webhook:', req.body);
+    return res.status(400).send('Missing required parameters');
+  }
+  
   try {
-    const { RecordingSid, RecordingUrl, TranscriptionText, CallSid } = req.body;
-    console.log('Transcription received:', { RecordingSid, RecordingUrl, TranscriptionText });
-    
     // Add transcription to dialog
-    const segment = addTranscription(CallSid, TranscriptionText, true);
+    await addTranscription(CallSid, TranscriptionText);
     
-    // Broadcast to all connected clients
-    broadcastToClients({
-      type: 'transcription',
-      data: segment
-    });
-    
-    // Process with Google Speech-to-Text for better accuracy
-    if (RecordingUrl) {
-      const [response] = await speechClient.recognize({
-        audio: {
-          uri: RecordingUrl
-        },
-        config: {
-          encoding: 'LINEAR16',
-          sampleRateHertz: 8000,
-          languageCode: 'ru-RU',
-          model: 'phone_call'
-        }
-      });
-      
-      const transcription = response.results
-        ?.map(result => result.alternatives?.[0]?.transcript)
-        .join('\n');
-      
-      if (transcription) {
-        // Add message to dialog
-        const message = await addMessage(CallSid, 'guest', transcription);
-        
-        // Broadcast to all connected clients
-        broadcastToClients({
-          type: 'message',
-          data: message
-        });
-      }
+    // Send transcription to connected clients
+    const ws = connections.get(CallSid);
+    if (ws) {
+      ws.send(JSON.stringify({
+        type: 'transcription',
+        text: TranscriptionText,
+        isFinal: TranscriptionStatus === 'completed'
+      }));
     }
     
-    res.sendStatus(200);
+    res.status(200).send('OK');
   } catch (error) {
-    console.error('Error processing transcription:', error);
-    res.sendStatus(500);
+    console.error('Error handling transcription:', error);
+    res.status(500).send('Internal server error');
   }
 });
 
+// Handle WebSocket upgrade requests
+server.on('upgrade', (request, socket, head) => {
+  console.log('Received upgrade request:', {
+    url: request.url,
+    headers: request.headers,
+    timestamp: new Date().toISOString()
+  });
+
+  // Handle the upgrade
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
+});
+
+// WebSocket error handling
+wss.on('error', (error) => {
+  console.error('WebSocket server error:', {
+    error: error.message,
+    stack: error.stack,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // WebSocket connection handler
-wss.on('connection', (ws: WebSocket) => {
+wss.on('connection', (ws: WebSocket, req) => {
   const id = uuidv4();
   connections.set(id, ws);
   
-  ws.on('message', (message: string) => {
-    try {
-      const data = JSON.parse(message);
-      // Handle WebSocket messages
-    } catch (error) {
-      console.error('Error handling WebSocket message:', error);
-    }
+  console.log(`New WebSocket connection established: ${id}`, {
+    headers: req.headers,
+    secure: req.socket instanceof require('tls').TLSSocket,
+    remoteAddress: req.socket.remoteAddress,
+    timestamp: new Date().toISOString(),
+    totalConnections: connections.size
   });
   
-  ws.on('close', () => {
+  // Send initial test message
+  ws.send(JSON.stringify({
+    type: 'test',
+    message: 'Server connection test',
+    timestamp: new Date().toISOString()
+  }));
+  
+  ws.on('message', (data) => {
+    try {
+      console.log(`Received message from ${id}:`, data.toString());
+      const message = JSON.parse(data.toString());
+      
+      if (message.type === 'test') {
+        console.log('Test message received:', message);
+        ws.send(JSON.stringify({
+          type: 'test_response',
+          message: 'Server received test',
+          timestamp: new Date().toISOString()
+        }));
+      }
+    } catch (error) {
+      console.error(`Error handling message from ${id}:`, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        data: data.toString(),
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  ws.on('error', (error) => {
+    console.error(`WebSocket error for connection ${id}:`, {
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  });
+  
+  ws.on('close', (code, reason) => {
+    console.log(`WebSocket connection closed: ${id}`, {
+      code,
+      reason: reason.toString(),
+      timestamp: new Date().toISOString(),
+      remainingConnections: connections.size - 1
+    });
     connections.delete(id);
   });
 });
+
+// Handle call-related WebSocket messages
+function handleCallMessage(id: string, data: any) {
+  const ws = connections.get(id);
+  if (!ws) return;
+  
+  switch (data.action) {
+    case 'start':
+      // Handle call start
+      makeCall(data.phoneNumber, data.webhookUrl)
+        .then(callSid => {
+          ws.send(JSON.stringify({
+            type: 'call_status',
+            status: 'started',
+            callSid
+          }));
+        })
+        .catch((error: Error) => {
+          console.error(`Error starting call for ${id}:`, error);
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Failed to start call'
+          }));
+        });
+      break;
+      
+    case 'end':
+      // Handle call end
+      if (data.callSid) {
+        endCall(data.callSid)
+          .then(() => {
+            ws.send(JSON.stringify({
+              type: 'call_status',
+              status: 'ended'
+            }));
+          })
+          .catch((error: Error) => {
+            console.error(`Error ending call for ${id}:`, error);
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Failed to end call'
+            }));
+          });
+      }
+      break;
+  }
+}
 
 // Broadcast to all connected clients
 function broadcastToClients(message: any) {
@@ -241,68 +409,110 @@ const handleIncomingCall: RequestHandler = (req, res, next) => {
 };
 
 // Handle voice webhook
-const handleVoiceWebhook: RequestHandler = (req, res, next) => {
+app.post('/voice', (req, res) => {
+  console.log('Received voice webhook request:', {
+    headers: req.headers,
+    body: req.body,
+    timestamp: new Date().toISOString()
+  });
+
   const twiml = new VoiceResponse();
   
-  // Add a <Say> verb to provide instructions
-  twiml.say('Welcome to JTalk1. Please start speaking after the tone.');
+  // Add greeting message
+  twiml.say({
+    voice: 'alice',
+    language: 'ru-RU'
+  }, 'Здравствуйте, вы позвонили в TalkHint. Пожалуйста, говорите после сигнала.');
   
-  // Add a <Record> verb to record the call
+  // Add recording with transcription
   twiml.record({
-    action: '/recording-complete',
-    method: 'POST',
-    maxLength: 3600,
     timeout: 5,
+    maxLength: 30,
     transcribe: true,
-    transcribeCallback: '/transcription-complete',
+    transcribeCallback: `${process.env.WEBHOOK_URL}/api/transcription-complete`,
+    action: `${process.env.WEBHOOK_URL}/api/recording-complete`,
+    method: 'POST'
   });
   
+  const response = twiml.toString();
+  console.log('Sending TwiML response:', response);
+  
   res.type('text/xml');
-  res.send(twiml.toString());
-};
+  res.status(200).send(response);
+});
 
 // Handle call status updates
 const handleCallStatus: RequestHandler = (req, res, next) => {
+  console.log('Received call status update:', {
+    headers: req.headers,
+    body: req.body,
+    timestamp: new Date().toISOString()
+  });
+  
+  const {
+    CallSid,
+    CallStatus,
+    From,
+    To,
+    Direction,
+    RecordingUrl,
+    RecordingSid,
+    RecordingDuration,
+    RecordingStatus,
+    RecordingChannels,
+    RecordingSource,
+    RecordingErrorCode,
+    RecordingErrorMsg
+  } = req.body;
+  
+  if (!CallSid || !CallStatus) {
+    console.error('Missing required parameters in call status webhook:', req.body);
+    return res.status(400).send('Missing required parameters');
+  }
+  
   try {
-    const {
-      CallSid,
-      From,
-      To,
-      Direction,
-      CallStatus,
-      RecordingUrl,
-      RecordingSid,
-      RecordingDuration,
-      RecordingStatus,
-      RecordingChannels,
-      RecordingSource,
-      RecordingErrorCode,
-      RecordingErrorMsg,
-    } = req.body;
+    // Update call status in active calls
+    const call = getCall(CallSid);
+    if (call) {
+      call.status = CallStatus;
+      call.recordingUrl = RecordingUrl;
+      call.recordingSid = RecordingSid;
+      call.recordingDuration = RecordingDuration;
+      call.recordingStatus = RecordingStatus;
+      call.recordingChannels = RecordingChannels;
+      call.recordingSource = RecordingSource;
+      call.recordingErrorCode = RecordingErrorCode;
+      call.recordingErrorMsg = RecordingErrorMsg;
+    }
     
-    handleCall(
-      CallSid,
-      From,
-      To,
-      Direction,
-      CallStatus,
-      RecordingUrl,
-      RecordingSid,
-      RecordingDuration,
-      RecordingStatus,
-      RecordingChannels,
-      RecordingSource,
-      RecordingErrorCode,
-      RecordingErrorMsg
-    )
-      .then(() => res.sendStatus(200))
-      .catch(error => {
-        console.error('Error handling call status:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      });
+    // Send status update to connected clients
+    const ws = connections.get(CallSid);
+    if (ws) {
+      ws.send(JSON.stringify({
+        type: 'call-status',
+        status: CallStatus,
+        recordingUrl: RecordingUrl,
+        recordingsid: RecordingSid,
+        recordingduration: RecordingDuration,
+        recordingstatus: RecordingStatus
+      }));
+    }
+    
+    console.log('Call status updated:', {
+      callSid: CallSid,
+      status: CallStatus,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.status(200).send('OK');
   } catch (error) {
-    console.error('Error handling call status:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error handling call status:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      callSid: CallSid,
+      timestamp: new Date().toISOString()
+    });
+    res.status(500).send('Internal server error');
   }
 };
 
@@ -411,32 +621,98 @@ const handleTranscriptionComplete: RequestHandler = (req, res, next) => {
   }
 };
 
-// Handle Twilio call status updates
-app.post('/call-status', (req, res) => {
-  console.log('Twilio status callback:', req.body);
-  res.status(200).send('OK');
-});
-
 // Handle incoming calls
 router.post('/call', handleIncomingCall);
-router.post('/voice', handleVoiceWebhook);
-router.post('/voice-fallback', handleVoiceFallback);
+router.post('/voice', handleVoiceFallback);
 router.post('/call-status', handleCallStatus);
 router.post('/recording-status', handleRecordingStatus);
 router.post('/transcription-complete', handleTranscriptionComplete);
 router.get('/calls', handleGetActiveCalls);
 router.get('/calls/:callSid', handleGetCall);
 
+// Health check endpoint
+app.get('/', async (req, res) => {
+  const twilioStatus = await verifyTwilioCredentials();
+  const wsStatus = wss?.clients?.size >= 0;
+  
+  res.json({
+    status: 'ok',
+    twilio: twilioStatus ? 'connected' : 'error',
+    websocket: wsStatus ? 'ready' : 'not initialized',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/health', async (req, res) => {
+  const twilioStatus = await verifyTwilioCredentials();
+  const wsStatus = wss?.clients?.size >= 0;
+  
+  res.json({
+    status: 'ok',
+    twilio: twilioStatus ? 'connected' : 'error',
+    websocket: wsStatus ? 'ready' : 'not initialized',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Handle Twilio webhook fallback
+app.post('/twilio-webhook-fallback', (req, res) => {
+  console.log('Received Twilio webhook fallback request:', req.body);
+  
+  const twiml = new VoiceResponse();
+  twiml.say({
+    voice: 'alice',
+    language: 'ru-RU'
+  }, 'Извините, произошла ошибка. Пожалуйста, попробуйте позвонить позже.');
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// Add server error handling
+server.on('error', (error) => {
+  console.error('HTTP server error:', {
+    error: error.message,
+    stack: error.stack,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Start the server
-server.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-  console.log('Available routes:');
-  console.log('POST /api/call - Make a call');
-  console.log('POST /api/voice - Handle voice webhook');
-  console.log('POST /api/voice-fallback - Handle voice fallback');
-  console.log('POST /api/call-status - Handle call status');
-  console.log('POST /api/recording-status - Handle recording status');
-  console.log('POST /api/transcription-complete - Handle transcription complete');
-  console.log('GET /api/calls - Get all calls');
-  console.log('GET /api/calls/:callSid - Get specific call');
+server.listen(port, host, () => {
+  console.log(`=== Server Ready ===`);
+  console.log(`Environment: production`);
+  console.log(`Host: ${host}`);
+  console.log(`Port: ${port}`);
+  console.log(`WebSocket path: /ws`);
+  console.log(`Server URL: https://talkhint-backend-637190449180.us-central1.run.app`);
+});
+
+// Handle process termination
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+app.post('/api/call', async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    const webhookUrl = `${process.env.WEBHOOK_URL}/twilio-webhook`;
+    const callSid = await makeCall(phoneNumber, webhookUrl);
+    res.json({ success: true, callSid });
+  } catch (error) {
+    console.error('Error making call:', error);
+    res.status(500).json({ success: false, error: 'Failed to make call' });
+  }
 }); 

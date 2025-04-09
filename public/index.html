@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TalkHint - Phone Call Transcription</title>
+    <title>TalkHint – Phone Call Transcription</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -24,6 +24,45 @@
             text-align: center;
             margin-bottom: 20px;
             grid-column: 1 / -1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .phone-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .phone-input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            width: 200px;
+        }
+        
+        .call-button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        
+        .call-button:hover {
+            background-color: #45a049;
+        }
+        
+        .hint-text {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
         }
         
         .dialog-column {
@@ -39,6 +78,7 @@
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
         }
         
         .message {
@@ -88,7 +128,17 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>TalkHint - Phone Call Transcription</h1>
+            <h1>TalkHint – Phone Call Transcription</h1>
+            <div class="phone-container">
+                <input type="tel" class="phone-input" id="phoneNumber" placeholder="Enter phone number">
+                <button class="call-button" id="callButton">Call</button>
+            </div>
+            <div class="hint-text">Press Enter or click Call to start a conversation</div>
+        </div>
+        
+        <div class="transcription-column">
+            <h2>Live Transcription</h2>
+            <div id="transcription" class="transcription"></div>
         </div>
         
         <div class="dialog-column" id="owner-column">
@@ -100,80 +150,40 @@
             <h2>Guest Messages</h2>
             <div id="guest-messages"></div>
         </div>
-        
-        <div class="transcription-column">
-            <h2>Live Transcription</h2>
-            <div id="transcription" class="transcription"></div>
-        </div>
     </div>
     
+    <script src="/js/call.js"></script>
     <script>
-        // WebSocket connection
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.host}`;
-        const ws = new WebSocket(wsUrl);
+        // Initialize CallManager
+        const callManager = new CallManager();
         
-        // DOM elements
-        const ownerMessages = document.getElementById('owner-messages');
-        const guestMessages = document.getElementById('guest-messages');
-        const transcription = document.getElementById('transcription');
+        // Get DOM elements
+        const phoneInput = document.getElementById('phoneNumber');
+        const callButton = document.getElementById('callButton');
         
-        // Handle WebSocket messages
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            
-            switch (data.type) {
-                case 'init':
-                    // Initialize with existing dialogs
-                    data.data.forEach(dialog => {
-                        dialog.messages.forEach(addMessage);
-                        dialog.transcription.forEach(addTranscription);
-                    });
-                    break;
-                    
-                case 'message':
-                    addMessage(data.data);
-                    break;
-                    
-                case 'transcription':
-                    addTranscription(data.data);
-                    break;
+        // Handle phone number input
+        phoneInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                makeCall();
             }
-        };
+        });
         
-        // Add a message to the dialog
-        function addMessage(message) {
-            const container = document.createElement('div');
-            container.className = `message ${message.source}`;
-            
-            const original = document.createElement('div');
-            original.className = 'original';
-            original.textContent = message.originalText;
-            
-            const translation = document.createElement('div');
-            translation.className = 'translation';
-            translation.textContent = message.translatedText;
-            
-            container.appendChild(original);
-            container.appendChild(translation);
-            
-            if (message.source === 'owner') {
-                ownerMessages.appendChild(container);
+        // Handle call button click
+        callButton.addEventListener('click', makeCall);
+        
+        // Function to make a call
+        async function makeCall() {
+            const phoneNumber = phoneInput.value.trim();
+            if (phoneNumber) {
+                try {
+                    await callManager.makeCall(phoneNumber);
+                    phoneInput.value = ''; // Clear input after successful call
+                } catch (error) {
+                    console.error('Error making call:', error);
+                    alert('Failed to make call. Please try again.');
+                }
             } else {
-                guestMessages.appendChild(container);
-            }
-        }
-        
-        // Add a transcription segment
-        function addTranscription(segment) {
-            const span = document.createElement('span');
-            span.className = segment.isFinal ? 'final' : 'interim';
-            span.textContent = segment.text + ' ';
-            
-            transcription.appendChild(span);
-            
-            if (segment.isFinal) {
-                transcription.appendChild(document.createElement('br'));
+                alert('Please enter a phone number');
             }
         }
     </script>

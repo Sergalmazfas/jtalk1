@@ -11,9 +11,9 @@ IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
 echo "🚀 Starting deployment to Cloud Run..."
 
-# Build the Docker image
+# Build the Docker image with platform specification
 echo "📦 Building Docker image..."
-docker build -t ${IMAGE_NAME} .
+docker build --platform linux/amd64 -t ${IMAGE_NAME} .
 
 # Push the image to Google Container Registry
 echo "⬆️ Pushing image to GCR..."

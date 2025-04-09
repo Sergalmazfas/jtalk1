@@ -7,16 +7,17 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies (including devDependencies for build)
-RUN npm ci
+# Install all dependencies (including dev dependencies)
+RUN npm install
 
-# Copy TypeScript configuration and source code
+# Copy TypeScript configuration
 COPY tsconfig.json ./
+
+# Copy source code
 COPY src/ ./src/
 COPY public/ ./public/
-COPY credentials/ ./credentials/
 
-# Copy environment variables
+# Copy production environment variables
 COPY .env.production .env
 
 # Build TypeScript
@@ -29,15 +30,15 @@ RUN npm ci --only=production
 RUN mkdir -p data/transcriptions dist
 
 # Set environment variables
-ENV PORT=8080
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
+ENV PORT=8080
 
 # Expose port
 EXPOSE 8080
 
 # Add health check with longer timeout
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/ || exit 1
 
 # Start the application with proper signal handling

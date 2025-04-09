@@ -1,28 +1,14 @@
 # Environment variables
 .env
-.env.local
-.env.*.local
-.env.development
-.env.test
-.env.production
+.env.*
+!.env.example
 
 # Credentials and secrets
 credentials/
-**/credentials/
-*.pem
+*.json
 *.key
+*.pem
 *.cert
-*.crt
-*.p12
-*.pfx
-
-# IDE and editor files
-.idea/
-.vscode/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
 
 # Dependencies
 node_modules/
@@ -33,26 +19,34 @@ yarn-error.log*
 # Build output
 dist/
 build/
-out/
-.next/
+*.tsbuildinfo
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
 
 # Logs
 logs/
 *.log
 
-# Testing
-coverage/
-.nyc_output/
-
 # Temporary files
-tmp/
-temp/
+*.tmp
+*.temp
 .cache/
 
-# Google Cloud specific
-*.json
-!package.json
-!package-lock.json
-!tsconfig.json
-!tslint.json
-!jest.config.json 
+# Test coverage
+coverage/
+
+# Production build
+public/js/bundle.js
+public/js/bundle.js.map
+
+# TypeScript
+*.tsbuildinfo
+
+# Misc
+.DS_Store
+Thumbs.db 

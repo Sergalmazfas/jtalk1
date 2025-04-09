@@ -279,107 +279,37 @@ npm run dev
    - Добавление поддержки других языков
    - Расширение функциональности для групповых бесед
 
-# TalkHint Project
+# TalkHint
 
-## Security Guidelines
+TalkHint is a real-time voice call application with transcription capabilities, built for production use on Google Cloud Run.
 
-### Environment Variables and Secrets
-- Never commit `.env` files or any files containing secrets
-- Use `.env.example` as a template for required environment variables
-- Store production secrets in Google Cloud Secret Manager
-- Rotate secrets regularly
-- Use different secrets for development and production environments
+## Current Version: v1.0.0-production
 
-### GitHub Security
-- Never commit credentials or API keys
-- Use `.gitignore` to prevent accidental commits of sensitive files
-- Review all commits before pushing
-- Use branch protection rules
-- Enable two-factor authentication for GitHub accounts
+### Features
+- **Real-time Voice Calls**: Powered by Twilio for high-quality voice communication
+- **Live Transcription**: Real-time speech-to-text during calls
+- **WebSocket Integration**: Instant updates and notifications
+- **Role-based Access**: Separate interfaces for owners and guests
+- **Production-Ready**: Optimized for Cloud Run deployment
 
-### Google Cloud Security
-- Store service account keys securely
-- Use minimal IAM permissions
-- Enable audit logging
-- Regularly review service account permissions
-- Use Secret Manager for sensitive data
+### Production Environment
+- **Deployment**: Google Cloud Run
+- **URL**: https://talkhint-backend-637190449180.us-central1.run.app
+- **WebSocket**: wss://talkhint-backend-637190449180.us-central1.run.app/ws
 
-## Setup Instructions
+### Getting Started
+1. Open the application in your browser
+2. Enter a phone number to initiate a call
+3. Use the interface to manage the call and view transcriptions
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-org/talkhint.git
-   cd talkhint
-   ```
+### Security
+- HTTPS enforced
+- CORS configured for production domains
+- Secure WebSocket connections
+- Environment variables for sensitive data
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Set up environment variables:
-   - Copy `.env.example` to `.env`
-   - Fill in the required values
-   - Never commit `.env` file
-
-4. Set up Google Cloud:
-   - Create a new project in Google Cloud Console
-   - Enable required APIs
-   - Create service account and download key
-   - Store key securely (not in repository)
-
-5. Set up secrets in Google Cloud Secret Manager:
-   ```bash
-   # Example commands for setting up secrets
-   gcloud secrets create TWILIO_AUTH_TOKEN --replication-policy="automatic"
-   gcloud secrets versions add TWILIO_AUTH_TOKEN --data-file="/path/to/secret.txt"
-   ```
-
-## Development Workflow
-
-1. Create a new branch for your feature:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-
-2. Make changes and test locally
-
-3. Commit changes:
-   ```bash
-   git add .
-   git commit -m "Description of changes"
-   ```
-
-4. Push to GitHub:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-
-5. Create a Pull Request
-
-## Deployment
-
-1. Ensure all tests pass
-2. Review security implications
-3. Deploy to Google Cloud Run:
-   ```bash
-   gcloud run deploy talkhint --source .
-   ```
-
-## Security Checklist
-
-- [ ] No secrets in code or configuration files
-- [ ] Environment variables properly set
-- [ ] Google Cloud permissions reviewed
-- [ ] Service account keys secured
-- [ ] Dependencies updated and secure
-- [ ] Security headers configured
-- [ ] SSL/TLS enabled
-- [ ] Regular security audits scheduled
-
-## Contact
-
-For security concerns, please contact the security team at security@your-org.com
+### Support
+For issues or questions, please contact the development team.
 
 ```bash
 npm install

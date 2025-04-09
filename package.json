@@ -1,15 +1,12 @@
 {
-  "name": "g-talk",
+  "name": "talkhint",
   "version": "1.0.0",
-  "description": "Phone call transcription service",
+  "description": "TalkHint - Production Telephony Application",
   "main": "dist/index.js",
   "scripts": {
-    "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
     "build": "tsc",
-    "clean": "rm -rf dist",
-    "prebuild": "npm run clean",
-    "deploy": "gcloud run deploy talkhint-backend --source . --project=talkhint --region=us-central1 --platform managed --allow-unauthenticated"
+    "start": "node dist/index.js",
+    "deploy": "gcloud builds submit --tag gcr.io/talkhint/talkhint-backend && gcloud run deploy talkhint-backend --image gcr.io/talkhint/talkhint-backend --platform managed --region us-central1 --allow-unauthenticated --port 8080"
   },
   "dependencies": {
     "@google-cloud/speech": "^6.1.0",
