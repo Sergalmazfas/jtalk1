@@ -40,7 +40,7 @@ class CallManager {
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.reconnectDelay = 5000;
-        this.displayTranscript('Connected to server', true);
+        this.logSystemMessage('Connected to server');
         
         // Start heartbeat
         this.startHeartbeat();
@@ -69,10 +69,10 @@ class CallManager {
           this.reconnectAttempts++;
           this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, this.maxReconnectDelay);
           
-          this.displayTranscript(`Disconnected from server. Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`, true);
+          this.logSystemMessage(`Disconnected from server. Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
           setTimeout(() => this.connectWebSocket(), this.reconnectDelay);
         } else {
-          this.displayTranscript('Maximum reconnection attempts reached. Please refresh the page.', true);
+          this.logSystemMessage('Maximum reconnection attempts reached. Please refresh the page.');
         }
       };
 
@@ -111,7 +111,7 @@ class CallManager {
           url: wsUrl,
           timestamp: new Date().toISOString()
         });
-        this.displayTranscript('Connection error. Attempting to reconnect...', true);
+        this.logSystemMessage('Connection error. Attempting to reconnect...');
       };
     } catch (error) {
       console.error('Failed to create WebSocket connection:', {
@@ -119,7 +119,7 @@ class CallManager {
         url: wsUrl,
         timestamp: new Date().toISOString()
       });
-      this.displayTranscript('Failed to connect to server. Please refresh the page.', true);
+      this.logSystemMessage('Failed to connect to server. Please refresh the page.');
       setTimeout(() => this.connectWebSocket(), this.reconnectDelay);
     }
   }
@@ -192,7 +192,7 @@ class CallManager {
           message: data.message,
           code: data.code
         });
-        this.displayTranscript(`Error: ${data.message}`, true);
+        this.logSystemMessage(`Error from server: ${data.message}`);
         break;
       case 'call_status':
         console.log('Call status update:', {
@@ -228,30 +228,25 @@ class CallManager {
         }
         break;
       default:
-        console.warn('Unknown message type:', {
-          type: data.type,
-          data: data
-        });
+        console.log('Received unknown message type:', data.type);
+        break;
     }
   }
 
   displayTranscript(text, isFinal, source) {
-    if (!text) return;
-
-    const span = document.createElement('span');
-    span.className = isFinal ? 'final' : 'interim';
-    span.textContent = text + ' ';
-
-    this.transcription.appendChild(span);
+    if (!this.transcription) return;
 
     if (isFinal) {
-      this.transcription.appendChild(document.createElement('br'));
-      
-      // Also add to the appropriate message column
-      this.displayMessage(text, source);
+      this.transcription.innerHTML += `<span class="final"> ${text}</span>`;
+    } else {
+      let interimSpan = this.transcription.querySelector('.interim:last-child');
+      if (!interimSpan || this.transcription.innerHTML.endsWith('</span>')) {
+        interimSpan = document.createElement('span');
+        interimSpan.className = 'interim';
+        this.transcription.appendChild(interimSpan);
+      }
+      interimSpan.textContent = ` ${text}`;
     }
-
-    // Scroll to the bottom
     this.transcription.scrollTop = this.transcription.scrollHeight;
   }
 
@@ -349,6 +344,25 @@ class CallManager {
       throw error;
     }
   }
+
+  // ADDED: Helper to log system messages (only displays on /admin)
+  logSystemMessage(text) {
+      if (window.location.pathname === '/admin') {
+          const adminLogArea = document.getElementById('admin-log-area');
+          if (adminLogArea) {
+              const logEntry = document.createElement('div');
+              logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+              adminLogArea.appendChild(logEntry);
+              adminLogArea.scrollTop = adminLogArea.scrollHeight; // Scroll to bottom
+          } else {
+              console.log(`[System Message - Admin Console Only]: ${text}`); // Fallback if log area not found
+          }
+      } else {
+          // Log to console on non-admin pages, don't display in UI
+          console.log(`[System Message - User Console]: ${text}`);
+      }
+  }
+  // END ADDED Helper
 }
 
 // Initialize the call manager when the page loads

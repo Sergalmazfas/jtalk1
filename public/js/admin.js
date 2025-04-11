@@ -1,180 +1,100 @@
+// WebSocket logic specifically for the admin page
+
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Admin script loaded.');
+    if (window.location.pathname !== '/admin') {
+        // Don't run admin logic on other pages
+        return; 
+    }
 
-    // --- Configuration ---
-    const ENABLE_SOCKET = false; // Временно отключено
-    // Determine WebSocket URL based on page protocol
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws`; // Connect to the same host
+    console.log('Admin page loaded. Initializing WebSocket...');
+    const adminLogArea = document.getElementById('admin-log-area');
 
-    // --- DOM Elements ---
-    const wsStatusBadge = document.getElementById('ws-status-badge');
-    const currentCallSidElement = document.getElementById('current-call-sid');
-    const systemLogsList = document.getElementById('system-logs-list');
-
-    // --- State ---
-    let ws = null;
-    let currentCallSid = 'N/A';
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
-    const reconnectDelay = 5000; // 5 seconds
-
-    // --- Functions ---
-
-    function updateWsStatus(isConnected) {
-        if (!wsStatusBadge) return;
-        if (isConnected) {
-            wsStatusBadge.textContent = 'Connected';
-            wsStatusBadge.classList.remove('disconnected');
-            wsStatusBadge.classList.add('connected');
+    function logToAdmin(text) {
+        if (adminLogArea) {
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+            adminLogArea.appendChild(logEntry);
+            adminLogArea.scrollTop = adminLogArea.scrollHeight; // Scroll to bottom
         } else {
-            wsStatusBadge.textContent = 'Disconnected';
-            wsStatusBadge.classList.remove('connected');
-            wsStatusBadge.classList.add('disconnected');
+            console.log('[Admin Log]:', text);
         }
     }
 
-    function updateCurrentCallSid(sid) {
-        if (!currentCallSidElement) return;
-        currentCallSid = sid || 'N/A';
-        currentCallSidElement.textContent = currentCallSid;
-    }
+    let ws;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 10;
+    let reconnectDelay = 3000;
+    const maxReconnectDelay = 30000;
+    let heartbeatInterval = null;
+    
+    // Use the same base URL determination as CallManager if possible, or hardcode
+    const baseUrl = 'https://talkhint-backend-637190449180.us-central1.run.app'; // Assuming production
+    const wsUrl = baseUrl.replace('https://', 'wss://') + '/ws';
 
-    function addLogMessage(message, type = 'system') {
-        if (!systemLogsList) return;
-
-        const li = document.createElement('li');
-        const timeSpan = document.createElement('span');
-        const messageSpan = document.createElement('span');
-
-        timeSpan.className = 'log-time';
-        messageSpan.className = 'log-message';
-
-        const now = new Date();
-        timeSpan.textContent = now.toLocaleTimeString(); 
-        messageSpan.textContent = message;
+    function connectAdminWebSocket() {
+        logToAdmin('Attempting to connect to WebSocket: ' + wsUrl);
+        if (ws) {
+            ws.close();
+        }
         
-        // Optional: Add class based on type for styling
-        li.classList.add(`log-${type}`); 
+        ws = new WebSocket(wsUrl);
 
-        li.appendChild(timeSpan);
-        li.appendChild(messageSpan);
+        ws.onopen = () => {
+            logToAdmin('WebSocket connected successfully.');
+            reconnectAttempts = 0;
+            reconnectDelay = 3000;
+            // Start heartbeat
+            stopHeartbeat();
+            heartbeatInterval = setInterval(() => {
+                 if (ws?.readyState === WebSocket.OPEN) {
+                     ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+                 }
+            }, 30000);
+        };
 
-        // Prepend new log message
-        systemLogsList.prepend(li);
+        ws.onclose = (event) => {
+            logToAdmin(`WebSocket disconnected. Code: ${event.code}, Reason: ${event.reason}. Attempting reconnect...`);
+            stopHeartbeat();
+            if (reconnectAttempts < maxReconnectAttempts) {
+                reconnectAttempts++;
+                reconnectDelay = Math.min(reconnectDelay * 1.5, maxReconnectDelay);
+                setTimeout(connectAdminWebSocket, reconnectDelay);
+            } else {
+                logToAdmin('Max WebSocket reconnection attempts reached.');
+            }
+        };
 
-        // Optional: Limit number of logs shown?
-        // while (systemLogsList.children.length > 100) {
-        //     systemLogsList.removeChild(systemLogsList.lastChild);
-        // }
-    }
-
-    function connectWebSocket() {
-        if (!ENABLE_SOCKET) {
-            addLogMessage('WebSocket connection is disabled in admin.js');
-            updateWsStatus(false);
-            return; 
-        }
-
-        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-            console.log('WebSocket already open or connecting.');
-            return;
-        }
-
-        console.log('Attempting to connect WebSocket to:', wsUrl);
-        addLogMessage('Attempting to connect WebSocket...');
-        updateWsStatus(false); // Show disconnected while attempting
-
-        try {
-            ws = new WebSocket(wsUrl);
-
-            ws.onopen = () => {
-                console.log('Admin WebSocket connected.');
-                addLogMessage('WebSocket connection established.');
-                updateWsStatus(true);
-                reconnectAttempts = 0; // Reset attempts on successful connection
-                // Maybe send a message to identify as admin?
-                // ws.send(JSON.stringify({ type: 'admin_hello' }));
-            };
-
-            ws.onmessage = (event) => {
-                try {
-                    console.log('Admin received message:', event.data);
-                    const data = JSON.parse(event.data);
-                    
-                    // Handle different message types from server
-                    switch (data.type) {
-                        case 'connected': // Server confirms connection
-                            addLogMessage(`Connected with Client ID: ${data.clientId}`);
-                            break;
-                        case 'call_status': 
-                            addLogMessage(`Call ${data.callSid} status: ${data.status}`);
-                            if (data.status === 'initiated' || data.status === 'ringing' || data.status === 'in-progress') {
-                                updateCurrentCallSid(data.callSid);
-                            } else if (data.status === 'completed' || data.status === 'failed' || data.status === 'canceled') {
-                                updateCurrentCallSid(null); // Clear SID when call ends
-                            }
-                            break;
-                        case 'transcription':
-                            addLogMessage(`[${data.source}] ${data.isFinal ? 'Final:' : 'Interim:'} ${data.text}`, 'transcription');
-                            break;
-                        case 'error':
-                            addLogMessage(`Server Error: ${data.message}`, 'error');
-                            break;
-                        case 'system_message':
-                             addLogMessage(`System: ${data.text}`, 'system');
-                             break;
-                         // Add other message types as needed
-                        default:
-                            addLogMessage(`Received unhandled message type: ${data.type}`);
-                    }
-
-                } catch (err) {
-                    console.error('Error parsing admin message:', err);
-                    addLogMessage('Received unparsable message from server.', 'error');
+        ws.onmessage = (event) => {
+            // Log ALL messages received on the admin page
+            logToAdmin(`Received message: ${event.data}`);
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'pong') {
+                    // Optionally hide pongs from log
+                     // logToAdmin('Received pong.');
+                } else {
+                     // Already logged the raw data above
                 }
-            };
+            } catch (e) {
+                // Message wasn't JSON, raw data already logged.
+            }
+        };
 
-            ws.onclose = (event) => {
-                console.log('Admin WebSocket disconnected:', event.code, event.reason);
-                addLogMessage(`WebSocket disconnected (${event.code}).`);
-                updateWsStatus(false);
-                ws = null; // Clear the instance
-                
-                // Attempt to reconnect if not explicitly closed and within limits
-                if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) { 
-                    reconnectAttempts++;
-                    addLogMessage(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
-                    setTimeout(connectWebSocket, reconnectDelay);
-                }
-            };
-
-            ws.onerror = (error) => {
-                console.error('Admin WebSocket error:', error);
-                addLogMessage('WebSocket connection error.', 'error');
-                updateWsStatus(false);
-                // onclose will likely be called next, triggering reconnect logic
-            };
-
-        } catch (error) {
-            console.error('Failed to create WebSocket connection:', error);
-            addLogMessage('Failed to initiate WebSocket connection.', 'error');
-            updateWsStatus(false);
-            // Optionally try reconnecting on creation error too
-             if (reconnectAttempts < maxReconnectAttempts) {
-                 reconnectAttempts++;
-                 addLogMessage(`Attempting to reconnect after creation error (${reconnectAttempts}/${maxReconnectAttempts})...`);
-                 setTimeout(connectWebSocket, reconnectDelay);
-             }
-        }
+        ws.onerror = (error) => {
+            logToAdmin(`WebSocket error occurred.`);
+            console.error('Admin WebSocket error:', error);
+            // The onclose event will likely trigger next for reconnection attempt
+        };
+    }
+    
+    function stopHeartbeat() {
+         if (heartbeatInterval) {
+             clearInterval(heartbeatInterval);
+             heartbeatInterval = null;
+         }
     }
 
-    // --- Initialization ---
-    // Clear placeholder log
-    if (systemLogsList) {
-        systemLogsList.innerHTML = ''; 
-    }
-    addLogMessage('Admin panel initialized.');
-    connectWebSocket(); // Attempt initial connection (will respect ENABLE_SOCKET flag)
+    // Initial connection attempt
+    connectAdminWebSocket();
 
 }); 
