@@ -594,8 +594,8 @@
         <div class="header">
             <h1>TalkHint – Phone Call Transcription</h1>
             <div class="phone-container">
-                <input type="tel" class="phone-input" id="phoneNumber" placeholder="Enter phone number" disabled>
-                <button class="call-button" id="callButton" disabled>Call</button>
+                <input type="tel" class="phone-input" id="phoneNumber" placeholder="Enter phone number">
+                <button class="call-button" id="callButton">Call</button>
             </div>
             <div class="hint-text">Click Call or press Enter to start</div>
             <!-- Кнопка для входа в режим разговора (теперь всегда видима в .header) -->
@@ -656,6 +656,7 @@
         
         // Get DOM elements
         const phoneInput = document.getElementById('phoneNumber');
+        const callButton = document.getElementById('callButton');
         
         // Handle phone number input
         phoneInput.addEventListener('keypress', (event) => {

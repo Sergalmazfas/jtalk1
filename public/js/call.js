@@ -18,7 +18,7 @@ class CallManager {
     this.baseUrl = 'https://talkhint-backend-637190449180.us-central1.run.app';
     
     // Initialize WebSocket connection
-    // this.connectWebSocket(); // временно отключено до восстановления Twilio
+    this.connectWebSocket(); // RESTORED: Enable WebSocket connection on init
   }
 
   connectWebSocket() {
