@@ -20,6 +20,9 @@ COPY public/ ./public/
 # Copy production environment variables
 COPY .env.production .env
 
+# Copy credentials directory
+COPY ./credentials/ ./credentials/
+
 # Build TypeScript
 RUN npm run build
 

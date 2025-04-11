@@ -1,23 +1,38 @@
+# Node.js
+node_modules/
+dist/
+
+# Credentials and environment
+.env
+.env.*
+credentials/
+credentials/*.json
+
+# IDE и системные файлы
+.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 # Environment variables
 .env
 .env.*
 !.env.example
 
 # Credentials and secrets
-credentials/
 *.json
 *.key
 *.pem
 *.cert
 
 # Dependencies
-node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
 # Build output
-dist/
 build/
 *.tsbuildinfo
 
@@ -26,7 +41,6 @@ build/
 .vscode/
 *.swp
 *.swo
-.DS_Store
 
 # Logs
 logs/
@@ -48,5 +62,4 @@ public/js/bundle.js.map
 *.tsbuildinfo
 
 # Misc
-.DS_Store
 Thumbs.db 

@@ -1,14 +1,22 @@
 import express, { Request, Response, Router, RequestHandler } from 'express';
-import { WebSocket, Server as WebSocketServer } from 'ws';
+import { WebSocket, Server as WebSocketServer } from 'ws'; // Uncommented
 import { SpeechClient } from '@google-cloud/speech';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { createServer } from 'http';
+import { createServer, IncomingMessage } from 'http';
 import { initTwilioService, makeCall, handleCall, getActiveCalls, getCall, endCall, verifyTwilioCredentials } from './twilioService';
 import { createDialog, addMessage, addTranscription, endDialog, getDialog, getAllDialogs } from './services/dialogService';
 import VoiceResponse = require('twilio/lib/twiml/VoiceResponse');
+import { Duplex } from 'stream';
+import { Socket } from 'net';
+import { Twilio } from 'twilio';
+import { parse } from 'url'; // Added import
+import { Buffer } from 'buffer'; // Added import
+
+// Флаг для временного отключения функций телефонии
+const TELEPHONY_ENABLED = false; // временно отключено до восстановления Twilio
 
 // Load environment variables
 dotenv.config();
@@ -16,8 +24,8 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 const router = Router();
-const port = 8080; // Fixed port for Cloud Run
-const host = '0.0.0.0'; // Fixed host for Cloud Run
+const port = parseInt(process.env.PORT || '8080', 10);
+const host = process.env.HOST || '0.0.0.0';
 
 // Enable CORS
 app.use((req, res, next) => {
@@ -43,11 +51,11 @@ app.use((req, res, next) => {
 // Create HTTP server
 const server = createServer(app);
 
-// Initialize WebSocket server with proper upgrade handling
+// Initialize WebSocket server (define but don't attach handlers if disabled)
 const wss = new WebSocketServer({ 
-  server,
+  noServer: true, // Important: we handle upgrade manually
   path: '/ws',
-  perMessageDeflate: {
+  perMessageDeflate: { // Restored full config for clarity
     zlibDeflateOptions: {
       chunkSize: 1024,
       memLevel: 7,
@@ -61,26 +69,61 @@ const wss = new WebSocketServer({
     serverMaxWindowBits: 10,
     concurrencyLimit: 10,
     threshold: 1024
+  },
+  handleProtocols: (protocols: Set<string>, request: IncomingMessage) => {
+     return protocols.size > 0 ? Array.from(protocols)[0] : false; 
   }
 });
 
-// Initialize Google Speech-to-Text client
+// Initialize Google Speech-to-Text client (keep initialized, might be needed for other things?)
 const speechClient = new SpeechClient();
 
-// Store WebSocket connections
+// Store WebSocket connections (keep maps defined, but they won't be populated)
 const connections = new Map<string, WebSocket>();
+const uiClients = new Map<string, WebSocket>();
+const clientCallMap = new Map<string, string>();
+const callClientMap = new Map<string, string>();
 
-// Store recognition streams
-const recognitionStreams = new Map<string, any>();
+// Initialize Twilio service (conditionally)
+let twilioClient: Twilio | null = null;
+if (TELEPHONY_ENABLED) {
+    initTwilioService(); // This function likely initializes the client
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+        console.error('CRITICAL: Twilio Account SID or Auth Token is missing in environment variables.');
+    } else {
+         twilioClient = new Twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!); 
+    }
+} else {
+    console.warn('TELEPHONY DISABLED: Skipping Twilio initialization.');
+}
 
-// Store audio buffers
-const audioBuffers = new Map<string, Buffer[]>();
-
-// Initialize Twilio service
-initTwilioService();
-
-// Serve static files
+// Serve static files (including admin page assets)
 app.use(express.static(path.join(__dirname, '../public')));
+
+// Route for the Admin Console page
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/admin.html'));
+});
+
+// --- ADDED: Route for settings page ---
+app.get('/settings', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/settings.html'));
+});
+// --- END ADDED Route ---
+
+// --- ADDED: Routes for static policy pages ---
+app.get('/privacy', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/privacy.html'));
+});
+
+app.get('/terms', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/terms.html'));
+});
+
+app.get('/call-policy', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/call-policy.html'));
+});
+// --- END ADDED Routes ---
 
 // Parse JSON bodies
 app.use(express.json());
@@ -91,214 +134,404 @@ app.use(express.urlencoded({ extended: false }));
 // Mount the router
 app.use('/api', router);
 
-// Handle Twilio webhook
+// --- ADDED: Route for settings page ---
+app.get('/settings', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/settings.html'));
+});
+// --- END ADDED Route ---
+
+// --- Add the new handleTwilioStream function ---
+export function handleTwilioStream(ws: WebSocket, callSid: string, clientId: string) {
+  // Use the global speechClient instance
+  // const speechClient = new SpeechClient(); 
+
+  const request = {
+    config: {
+      encoding: 'MULAW' as const, // Added 'as const' for stricter typing
+      sampleRateHertz: 8000,
+      languageCode: 'en-US',
+    },
+    interimResults: true,
+  };
+
+  const recognizeStream = speechClient
+    .streamingRecognize(request)
+    .on('error', (error) => {
+      console.error(`[STT ERROR] CallSid: ${callSid}, ClientId: ${clientId}`, error);
+      // Optionally inform the UI client about the STT error
+      const clientSocket = uiClients.get(clientId);
+      if (clientSocket && clientSocket.readyState === WebSocket.OPEN) {
+        clientSocket.send(JSON.stringify({ type: 'error', source: 'stt', message: 'Speech recognition error', callSid }));
+      }
+    })
+    .on('data', (data) => {
+      const transcript = data.results?.[0]?.alternatives?.[0]?.transcript;
+      const isFinal = data.results?.[0]?.isFinal ?? false; // Ensure boolean
+
+      if (transcript) {
+        const message = {
+          type: 'transcription', // Added type for client-side routing
+          source: 'guest',
+          text: transcript,
+          isFinal,
+          callSid,
+        };
+
+        // Use the global uiClients map
+        const clientSocket = uiClients.get(clientId);
+        if (clientSocket && clientSocket.readyState === WebSocket.OPEN) {
+          clientSocket.send(JSON.stringify(message));
+        } else {
+            console.warn(`[forwardToClient] UI client ${clientId} not found or not open for call ${callSid}`);
+        }
+      }
+    });
+
+  console.log(`[audiostream] New stream handler started for callSid: ${callSid}, clientId: ${clientId}`);
+
+  ws.on('message', (msg) => {
+    try {
+      // Message might not be JSON, but a raw buffer initially. Check type?
+      // Twilio sends JSON messages for events like 'start', 'media', 'stop'.
+      const parsed = JSON.parse(msg.toString());
+
+      if (parsed.event === 'start') {
+        console.log(`[audiostream] Stream started: ${parsed.streamSid} for call ${callSid}`);
+        // Inform UI Client?
+        const clientSocket = uiClients.get(clientId);
+        if (clientSocket && clientSocket.readyState === WebSocket.OPEN) {
+           clientSocket.send(JSON.stringify({ type: 'system_message', text: `Audio stream connected for call ${callSid}`, callSid }));
+        }
+      } else if (parsed.event === 'media' && parsed.media?.payload) {
+        // Process audio payload
+        const audioBuffer = Buffer.from(parsed.media.payload, 'base64');
+        if (recognizeStream && !recognizeStream.destroyed) {
+             recognizeStream.write(audioBuffer);
+        } else {
+             console.warn(`[audiostream] RecognizeStream not writable for call ${callSid}.`);
+        }
+      } else if (parsed.event === 'stop') {
+        console.log(`[audiostream] Stream stop event received for call ${callSid}.`);
+        if (recognizeStream && !recognizeStream.destroyed) {
+             recognizeStream.end();
+        }
+        ws.close(); // Close the Twilio WebSocket connection
+        // Inform UI Client?
+         const clientSocket = uiClients.get(clientId);
+         if (clientSocket && clientSocket.readyState === WebSocket.OPEN) {
+            clientSocket.send(JSON.stringify({ type: 'system_message', text: `Audio stream stopped for call ${callSid}`, callSid }));
+         }
+      } else {
+          console.log(`[audiostream] Received unhandled event type: ${parsed.event} for call ${callSid}`);
+      }
+    } catch (err) {
+      console.error(`[audiostream] Message processing error for call ${callSid}:`, err);
+      // Log the raw message for debugging if it wasn't parsable JSON
+      if (err instanceof SyntaxError) {
+           console.error("[audiostream] Raw message:", msg.toString());
+      }
+    }
+  });
+
+  ws.on('close', (code, reason) => {
+    console.log(`[audiostream] WebSocket closed for callSid: ${callSid}, Code: ${code}, Reason: ${reason?.toString()}`);
+    if (recognizeStream && !recognizeStream.destroyed) {
+        recognizeStream.end();
+        console.log(`[audiostream] RecognizeStream ended due to WebSocket close for call ${callSid}.`);
+    }
+  });
+
+  ws.on('error', (error) => {
+     console.error(`[audiostream] WebSocket error for callSid: ${callSid}:`, error);
+     if (recognizeStream && !recognizeStream.destroyed) {
+         recognizeStream.destroy(error); // Destroy stream on WS error
+         console.log(`[audiostream] RecognizeStream destroyed due to WebSocket error for call ${callSid}.`);
+     }
+  });
+}
+// --- End of handleTwilioStream function ---
+
+// Handle Twilio webhook (return simple OK if disabled)
 app.post('/twilio-webhook', (req, res) => {
-  console.log('Received Twilio webhook request:', {
+  if (!TELEPHONY_ENABLED) {
+    console.log('[DISABLED] Received /twilio-webhook request, returning OK.');
+    res.status(200).type('text/xml').send('<Response/>'); // Send minimal valid TwiML
+    return;
+  }
+
+  console.log('Received Twilio webhook request (Stream setup):', {
     headers: req.headers,
     body: req.body,
     timestamp: new Date().toISOString()
   });
-  
-  if (!req.body.CallSid) {
-    console.error('Missing CallSid in webhook request');
+
+  const callSid = req.body.CallSid;
+  if (!callSid) {
+    console.error('Missing CallSid in webhook request for stream setup');
     return res.status(400).send('Missing CallSid');
   }
+
+  // ** Important: Get the associated client ID for this call **
+  // This needs to be passed somehow when the call is initiated, 
+  // perhaps via custom parameters in the call API or looked up.
+  // For now, let's assume we can retrieve it based on CallSid.
+  // We will use the callClientMap we defined earlier.
+  const clientId = callClientMap.get(callSid);
+  if (!clientId) {
+      console.error(`Could not find client ID for CallSid ${callSid} during stream setup.`);
+      // Decide how to handle this - maybe hang up?
+      const hangupTwiml = new VoiceResponse();
+      hangupTwiml.hangup();
+      res.type('text/xml');
+      return res.send(hangupTwiml.toString());
+  }
   
+  // Construct the WebSocket URL for the audio stream
+  // Make sure req.headers.host is correct behind proxy/load balancer
+  // Consider using WEBHOOK_URL base instead if host is unreliable
+  const serviceHost = process.env.WEBHOOK_URL ? new URL(process.env.WEBHOOK_URL).host : req.headers.host;
+  const audioStreamUrl = `wss://${serviceHost}/audiostream?clientId=${encodeURIComponent(clientId)}&callSid=${encodeURIComponent(callSid)}`;
+
+  console.log(`Setting up Twilio Media Stream to: ${audioStreamUrl} for call ${callSid}, client ${clientId}`);
+
   const twiml = new VoiceResponse();
-  
-  // Create a new dialog for this call
-  const callSid = req.body.CallSid;
-  createDialog(callSid);
-  
-  // Add greeting message
+
+  // Optional: Greeting message before connecting the stream
   twiml.say({
     voice: 'alice',
     language: 'ru-RU'
-  }, 'Здравствуйте, вы позвонили в TalkHint. Пожалуйста, говорите после сигнала.');
-  
-  // Add recording with transcription
-  twiml.record({
-    timeout: 5,
-    maxLength: 30,
-    transcribe: true,
-    transcribeCallback: `${process.env.WEBHOOK_URL}/api/transcription-complete`,
-    action: `${process.env.WEBHOOK_URL}/api/recording-complete`,
-    method: 'POST'
-  });
-  
+  }, 'Соединяю с системой анализа речи.'); // Shorter greeting?
+
+  // Start the media stream
+  const connect = twiml.connect();
+  connect.stream({
+      url: audioStreamUrl,
+      // track: 'both_tracks' // Let's start with inbound only (guest audio)
+      track: 'inbound_track' 
+  }); // Send only guest audio to STT for now
+
+  // Optional: Message after stream setup (might not be heard if stream connects quickly)
+  // twiml.say('Stream connected.'); 
+
   const response = twiml.toString();
-  console.log('Sending TwiML response:', response);
+  console.log('Sending TwiML response for Stream:', response);
   
   res.type('text/xml');
   res.send(response);
 });
 
-// Handle recording completion
-app.post('/api/recording-complete', async (req, res) => {
-  console.log('Recording completed:', req.body);
-  
-  const { CallSid, RecordingUrl, RecordingDuration } = req.body;
-  
-  if (!CallSid || !RecordingUrl) {
-    console.error('Missing required parameters in recording webhook:', req.body);
-    return res.status(400).send('Missing required parameters');
-  }
-  
-  try {
-    // Process recording with Google Speech-to-Text
-    const [response] = await speechClient.recognize({
-      audio: {
-        uri: RecordingUrl
-      },
-      config: {
-        encoding: 'LINEAR16',
-        sampleRateHertz: 8000,
-        languageCode: 'ru-RU',
-        model: 'phone_call'
-      }
-    });
-    
-    const transcription = response.results
-      ?.map(result => result.alternatives?.[0]?.transcript)
-      .join('\n');
-    
-    if (transcription) {
-      // Add transcription to dialog
-      await addTranscription(CallSid, transcription);
-      
-      // Send transcription to connected clients
-      const ws = connections.get(CallSid);
-      if (ws) {
-        ws.send(JSON.stringify({
-          type: 'transcription',
-          text: transcription,
-          isFinal: true
-        }));
-      }
+// --- Remove or comment out old recording/transcription webhooks ---
+/*
+app.post('/api/recording-complete', async (req, res) => { ... });
+app.post('/api/transcription-complete', async (req, res) => { ... });
+*/
+
+// --- WebSocket Server Event Handling (Conditionally attach handlers) ---
+
+if (TELEPHONY_ENABLED) {
+  wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
+    // Use 'parse' from 'url' to handle potential undefined request.url
+    const parsedUrl = parse(request.url || '', true);
+    const pathname = parsedUrl.pathname;
+    const query = parsedUrl.query; // query is already parsed into an object
+
+    // Handle the regular client UI connection (/ws)
+    if (pathname === '/ws') {
+        // Use sec-websocket-key as the unique ID for UI clients
+        const wsClientId = request.headers['sec-websocket-key'] as string;
+        if (!wsClientId) {
+            console.error('No sec-websocket-key provided for client UI connection');
+            ws.close(1008, 'Client identifier required');
+            return;
+        }
+        
+        // Close existing connection if any for the same key
+        if (connections.has(wsClientId)) {
+            console.log(`Closing existing UI connection for client ${wsClientId}`);
+            const oldWs = connections.get(wsClientId);
+            oldWs?.close(1001, 'New UI connection replacing existing one');
+            // Clean up maps for the old connection
+            connections.delete(wsClientId);
+            uiClients.delete(wsClientId); // Remove from uiClients too
+            const oldCallSid = clientCallMap.get(wsClientId);
+            if (oldCallSid) callClientMap.delete(oldCallSid);
+            clientCallMap.delete(wsClientId);
+        }
+
+        // Store the new connection
+        connections.set(wsClientId, ws);
+        uiClients.set(wsClientId, ws); // Store in uiClients as well
+        console.log(`New WebSocket connection established for client UI: ${wsClientId}`);
+
+        // Send confirmation to client
+        ws.send(JSON.stringify({ type: 'connected', clientId: wsClientId }));
+
+        // Standard message/close/error handlers for UI client
+        ws.on('message', (message) => {
+            try {
+                const data = JSON.parse(message.toString());
+                console.log(`Received message from client UI ${wsClientId}:`, data);
+
+                if (data.type === 'call_request' && data.phoneNumber) {
+                   // Check if Twilio client is available before using it
+                   if (twilioClient) { 
+                      const webhookUrl = `${process.env.WEBHOOK_URL}/twilio-webhook`;
+                      console.log(`Initiating call from UI ${wsClientId} to ${data.phoneNumber}`);
+                      // Now it's safe to use twilioClient
+                      twilioClient.calls.create({ 
+                          to: data.phoneNumber,
+                          from: process.env.TWILIO_PHONE_NUMBER!, // Ensure non-null if TELEPHONY_ENABLED
+                          url: webhookUrl,
+                       })
+                         .then(call => {
+                             console.log(`Call initiated via UI request, SID: ${call.sid}, Client: ${wsClientId}`);
+                             // Associate CallSid with clientId (sec-websocket-key)
+                             clientCallMap.set(wsClientId, call.sid);
+                             callClientMap.set(call.sid, wsClientId); // Store reverse mapping
+
+                             ws.send(JSON.stringify({ type: 'call_status', status: 'initiated', callSid: call.sid }));
+                         })
+                         .catch(error => {
+                             console.error(`Error initiating call from UI ${wsClientId}:`, error);
+                             ws.send(JSON.stringify({ type: 'error', message: `Failed to initiate call: ${error.message}` }));
+                         });
+                   } else {
+                      console.error(`Cannot process call_request from ${wsClientId}: Telephony is disabled or Twilio client failed to initialize.`);
+                      ws.send(JSON.stringify({ type: 'error', message: 'Telephony is currently disabled on the server.' }));
+                   }
+                }
+                /* // временно отключено из-за ошибки компиляции TS18047 --- ПЕРЕМЕЩЕНО НАЧАЛО КОММЕНТАРИЯ
+                else if (data.type === 'end_call' && data.callSid) {
+                     // Check if Twilio client is available FIRST
+                     if (twilioClient) { 
+                         const currentTwilioClient = twilioClient; // Create non-null local copy
+                         const mappedClientId = callClientMap.get(data.callSid);
+                         // THEN check ownership
+                         if (mappedClientId === wsClientId) { 
+                             console.log(`Ending call ${data.callSid} requested by owner UI ${wsClientId}`);
+                             // Use the non-null local copy
+                             currentTwilioClient.calls(data.callSid).update({ status: 'completed' })
+                                 .then(call => {
+                                     console.log(`Call ${call.sid} ended via UI request.`);
+                                     ws.send(JSON.stringify({ type: 'call_status', status: 'ended', callSid: call.sid }));
+                                     // Clean up maps after ending
+                                     callClientMap.delete(call.sid);
+                                     clientCallMap.delete(wsClientId);
+                                 })
+                                 .catch(error => {
+                                     console.error(`Error ending call ${data.callSid} from UI ${wsClientId}:`, error);
+                                     ws.send(JSON.stringify({ type: 'error', message: `Failed to end call: ${error.message}` }));
+                                 });
+                         } else {
+                             console.warn(`UI ${wsClientId} attempted to end call ${data.callSid} which it does not own or map is missing.`);
+                             ws.send(JSON.stringify({ type: 'error', message: 'Cannot end call: Not owner.' }));
+                         }
+                     } else {
+                          // Handle case where Twilio is disabled/unavailable
+                          console.warn(`Cannot process end_call for ${data.callSid}: Telephony disabled.`);
+                          ws.send(JSON.stringify({ type: 'error', message: 'Cannot end call: Telephony is disabled.' }));
+                     }
+                }
+                */ // --- ДОБАВЛЕН КОНЕЦ КОММЕНТАРИЯ --- 
+                else {
+                    // Handle other messages like ping
+                    switch (data.type) {
+                        case 'ping':
+                            ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+                            break;
+                        // Handle other potential messages from UI
+                        default:
+                             console.log(`Unhandled message type from UI ${wsClientId}: ${data.type}`);
+                    }
+                }
+            } catch (error) {
+                console.error(`Error handling message from client UI ${wsClientId}:`, error);
+                ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
+            }
+        });
+
+        ws.on('close', (code, reason) => {
+            console.log(`WebSocket connection closed for client UI: ${wsClientId}, Code: ${code}, Reason: ${reason?.toString()}`);
+            const associatedCallSid = clientCallMap.get(wsClientId);
+            if (associatedCallSid) {
+                console.log(`UI client ${wsClientId} disconnected, cleaning up associated call ${associatedCallSid}`);
+                callClientMap.delete(associatedCallSid);
+                // Optionally end the call if the UI disconnects abruptly?
+                // twilioClient.calls(associatedCallSid).update({ status: 'completed' }).catch(e => console.error("Error ending call on UI disconnect:", e));
+            }
+            clientCallMap.delete(wsClientId);
+            connections.delete(wsClientId);
+            uiClients.delete(wsClientId); // Remove from uiClients
+        });
+
+        ws.on('error', (error) => {
+            console.error(`WebSocket error for client UI ${wsClientId}:`, error);
+            const associatedCallSid = clientCallMap.get(wsClientId);
+            if (associatedCallSid) {
+                 console.log(`UI client ${wsClientId} errored, cleaning up associated call ${associatedCallSid}`);
+                 callClientMap.delete(associatedCallSid);
+            }
+            clientCallMap.delete(wsClientId);
+            connections.delete(wsClientId);
+            uiClients.delete(wsClientId); // Remove from uiClients
+            // Attempt to close the WebSocket cleanly on error, if not already closed
+             if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                 ws.close(1011, "WebSocket error occurred");
+             }
+        });
+
     }
-    
-    res.status(200).send('OK');
-  } catch (error) {
-    console.error('Error handling recording:', error);
-    res.status(500).send('Internal server error');
-  }
-});
+    // Handle the Twilio audio stream connection (/audiostream)
+    else if (pathname === '/audiostream') {
+        // Extract clientId and callSid from query parameters
+        const clientIdFromQuery = query.clientId?.toString();
+        const callSidFromQuery = query.callSid?.toString();
 
-// Handle transcription completion
-app.post('/api/transcription-complete', async (req, res) => {
-  console.log('Transcription completed:', req.body);
-  
-  const { CallSid, TranscriptionText, TranscriptionStatus } = req.body;
-  
-  if (!CallSid || !TranscriptionText) {
-    console.error('Missing required parameters in transcription webhook:', req.body);
-    return res.status(400).send('Missing required parameters');
-  }
-  
-  try {
-    // Add transcription to dialog
-    await addTranscription(CallSid, TranscriptionText);
-    
-    // Send transcription to connected clients
-    const ws = connections.get(CallSid);
-    if (ws) {
-      ws.send(JSON.stringify({
-        type: 'transcription',
-        text: TranscriptionText,
-        isFinal: TranscriptionStatus === 'completed'
-      }));
-    }
-    
-    res.status(200).send('OK');
-  } catch (error) {
-    console.error('Error handling transcription:', error);
-    res.status(500).send('Internal server error');
-  }
-});
+        if (!clientIdFromQuery || !callSidFromQuery) {
+             console.error('Missing clientId or callSid in /audiostream connection URL');
+             ws.close(1008, 'Missing clientId or callSid parameter');
+             return;
+        }
+        
+        // Verify the clientId corresponds to an active UI client connection
+        const uiWs = uiClients.get(clientIdFromQuery); 
+        if (!uiWs || uiWs.readyState !== WebSocket.OPEN) {
+            console.error(`UI WebSocket not found or not open for clientId ${clientIdFromQuery} when audio stream connected for call ${callSidFromQuery}.`);
+            ws.close(1011, 'Associated UI client not found or disconnected.');
+            return;
+        }
 
-// Handle WebSocket upgrade requests
-server.on('upgrade', (request, socket, head) => {
-  console.log('Received upgrade request:', {
-    url: request.url,
-    headers: request.headers,
-    timestamp: new Date().toISOString()
-  });
+        // Now call the dedicated handler for the Twilio stream
+        handleTwilioStream(ws, callSidFromQuery!, clientIdFromQuery!);
 
-  // Handle the upgrade
-  wss.handleUpgrade(request, socket, head, (ws) => {
-    wss.emit('connection', ws, request);
-  });
-});
-
-// WebSocket error handling
-wss.on('error', (error) => {
-  console.error('WebSocket server error:', {
-    error: error.message,
-    stack: error.stack,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// WebSocket connection handler
-wss.on('connection', (ws: WebSocket, req) => {
-  const id = uuidv4();
-  connections.set(id, ws);
-  
-  console.log(`New WebSocket connection established: ${id}`, {
-    headers: req.headers,
-    secure: req.socket instanceof require('tls').TLSSocket,
-    remoteAddress: req.socket.remoteAddress,
-    timestamp: new Date().toISOString(),
-    totalConnections: connections.size
-  });
-  
-  // Send initial test message
-  ws.send(JSON.stringify({
-    type: 'test',
-    message: 'Server connection test',
-    timestamp: new Date().toISOString()
-  }));
-  
-  ws.on('message', (data) => {
-    try {
-      console.log(`Received message from ${id}:`, data.toString());
-      const message = JSON.parse(data.toString());
-      
-      if (message.type === 'test') {
-        console.log('Test message received:', message);
-        ws.send(JSON.stringify({
-          type: 'test_response',
-          message: 'Server received test',
-          timestamp: new Date().toISOString()
-        }));
-      }
-    } catch (error) {
-      console.error(`Error handling message from ${id}:`, {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        data: data.toString(),
-        timestamp: new Date().toISOString()
-      });
+    } else {
+        console.warn('Unknown WebSocket connection attempt:', { pathname, query });
+        ws.close(1008, 'Invalid path or missing parameters');
     }
   });
 
-  ws.on('error', (error) => {
-    console.error(`WebSocket error for connection ${id}:`, {
-      error: error.message,
-      stack: error.stack,
-      timestamp: new Date().toISOString()
-    });
+  // Attach the upgrade handler
+  server.on('upgrade', (request, socket: Duplex, head) => { 
+    // Decide which path to handle (e.g., /ws or /audiostream)
+    // For simplicity, let wss attempt to handle any upgrade if telephony is enabled
+    // The connection handler above will sort out the paths.
+     wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+     });
   });
-  
-  ws.on('close', (code, reason) => {
-    console.log(`WebSocket connection closed: ${id}`, {
-      code,
-      reason: reason.toString(),
-      timestamp: new Date().toISOString(),
-      remainingConnections: connections.size - 1
-    });
-    connections.delete(id);
+  console.log('TELEPHONY ENABLED: WebSocket server upgrade handler attached.');
+
+} else {
+  // If telephony is disabled, explicitly reject WebSocket upgrade attempts
+  server.on('upgrade', (request, socket: Duplex, head) => {
+    const url = parse(request.url || '', true);
+    console.warn(`[DISABLED] Rejecting WebSocket upgrade request for path: ${url.pathname}`);
+    // Terminate the socket for the upgrade request
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'); // Or 404 Not Found
+    socket.destroy();
   });
-});
+  console.warn('TELEPHONY DISABLED: WebSocket server upgrade handler is not attached.');
+}
 
 // Handle call-related WebSocket messages
 function handleCallMessage(id: string, data: any) {
@@ -442,7 +675,13 @@ app.post('/voice', (req, res) => {
 });
 
 // Handle call status updates
-const handleCallStatus: RequestHandler = (req, res, next) => {
+const handleCallStatusLogic: RequestHandler = (req, res, next) => {
+  if (!TELEPHONY_ENABLED) {
+    console.log('[DISABLED] Received /call-status request, returning OK.');
+    res.status(200).send('OK');
+    return;
+  }
+
   console.log('Received call status update:', {
     headers: req.headers,
     body: req.body,
@@ -515,6 +754,16 @@ const handleCallStatus: RequestHandler = (req, res, next) => {
     res.status(500).send('Internal server error');
   }
 };
+
+app.post('/call-status', (req, res, next) => {
+  if (!TELEPHONY_ENABLED) {
+    console.log('[DISABLED] Received /call-status request, returning OK.');
+    res.status(200).send('OK');
+    return;
+  }
+  // Call the actual logic if enabled
+  handleCallStatusLogic(req, res, next);
+});
 
 // Handle recording status updates
 const handleRecordingStatus: RequestHandler = async (req, res, next) => {
@@ -621,10 +870,17 @@ const handleTranscriptionComplete: RequestHandler = (req, res, next) => {
   }
 };
 
+/* // Закомментирован старый HTTP обработчик инициации звонка (перенесено на WebSocket)
+// Route to initiate a call
+router.post('/call', async (req, res) => {
+  // ... весь код обработчика ...
+});
+*/
+
 // Handle incoming calls
 router.post('/call', handleIncomingCall);
 router.post('/voice', handleVoiceFallback);
-router.post('/call-status', handleCallStatus);
+router.post('/call-status', handleCallStatusLogic);
 router.post('/recording-status', handleRecordingStatus);
 router.post('/transcription-complete', handleTranscriptionComplete);
 router.get('/calls', handleGetActiveCalls);
@@ -632,6 +888,7 @@ router.get('/calls/:callSid', handleGetCall);
 
 // Health check endpoint
 app.get('/', async (req, res) => {
+  console.log('Received request to / with headers:', JSON.stringify(req.headers, null, 2)); // Log headers
   const twilioStatus = await verifyTwilioCredentials();
   const wsStatus = wss?.clients?.size >= 0;
   
@@ -650,7 +907,7 @@ app.get('/health', async (req, res) => {
   res.json({
     status: 'ok',
     twilio: twilioStatus ? 'connected' : 'error',
-    websocket: wsStatus ? 'ready' : 'not initialized',
+    websocket: wsStatus ? 'ready' : 'not initialized', 
     timestamp: new Date().toISOString()
   });
 });
@@ -669,24 +926,28 @@ app.post('/twilio-webhook-fallback', (req, res) => {
   res.send(twiml.toString());
 });
 
-// Add server error handling
-server.on('error', (error) => {
-  console.error('HTTP server error:', {
-    error: error.message,
-    stack: error.stack,
-    timestamp: new Date().toISOString()
-  });
-});
-
 // Start the server
-server.listen(port, host, () => {
-  console.log(`=== Server Ready ===`);
-  console.log(`Environment: production`);
-  console.log(`Host: ${host}`);
-  console.log(`Port: ${port}`);
-  console.log(`WebSocket path: /ws`);
-  console.log(`Server URL: https://talkhint-backend-637190449180.us-central1.run.app`);
-});
+if (process.env.NODE_ENV === 'production') {
+  // In production (like Cloud Run), listen on the port provided by the environment
+  server.listen(port, () => {
+    console.log('=== Server Ready ===');
+    console.log(`Environment: ${process.env.NODE_ENV}`);
+    // console.log(`Host: ${host}`); // Host is implicitly 0.0.0.0 in Cloud Run
+    console.log(`Port: ${port}`);
+    console.log(`WebSocket path: ${process.env.WS_PATH || '/ws'}`);
+    console.log(`Server URL: ${process.env.WEBHOOK_URL}`);
+  });
+} else {
+  // In development, listen on the specified host and port
+  server.listen(port, host, () => {
+    console.log('=== Server Ready ===');
+    console.log(`Environment: ${process.env.NODE_ENV}`);
+    console.log(`Host: ${host}`);
+    console.log(`Port: ${port}`);
+    console.log(`WebSocket path: ${process.env.WS_PATH || '/ws'}`);
+    console.log(`Server URL: ${process.env.WEBHOOK_URL}`);
+  });
+}
 
 // Handle process termination
 process.on('SIGTERM', () => {
@@ -705,14 +966,11 @@ process.on('SIGINT', () => {
   });
 });
 
-app.post('/api/call', async (req, res) => {
-  try {
-    const { phoneNumber } = req.body;
-    const webhookUrl = `${process.env.WEBHOOK_URL}/twilio-webhook`;
-    const callSid = await makeCall(phoneNumber, webhookUrl);
-    res.json({ success: true, callSid });
-  } catch (error) {
-    console.error('Error making call:', error);
-    res.status(500).json({ success: false, error: 'Failed to make call' });
-  }
+// Handle server errors
+server.on('error', (error: Error) => {
+  console.error('HTTP server error:', {
+    error: error.message,
+    stack: error.stack,
+    timestamp: new Date().toISOString()
+  });
 }); 

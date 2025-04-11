@@ -1,0 +1,138 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f8f9fa; /* Light grey background */
+    color: #212529;
+}
+
+.admin-container {
+    max-width: 900px;
+    margin: 20px auto;
+    display: flex;
+    flex-direction: column;
+    gap: 25px;
+}
+
+.admin-header h1 {
+    font-size: 1.8rem; /* Slightly adjusted title size */
+    font-weight: 600; /* Make header slightly bolder */
+    color: #343a40;
+    margin-bottom: 25px; /* Increased space below header */
+    text-align: left; 
+}
+
+.admin-card {
+    background: #ffffff; /* White cards */
+    padding: 20px 25px; /* Adjusted padding */
+    border-radius: 10px; /* Slightly less rounded corners */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); /* Refined shadow */
+    border: 1px solid #e9ecef; /* Slightly lighter border */
+}
+
+.admin-card h2 {
+    font-size: 1.2rem; /* Adjusted section titles */
+    font-weight: 600; /* Bolder section titles */
+    margin-top: 0;
+    margin-bottom: 18px;
+    color: #495057;
+    border-bottom: 1px solid #f1f3f5; /* Lighter separator */
+    padding-bottom: 10px;
+}
+
+/* Styles for specific cards */
+#current-call-card p {
+    font-size: 1rem;
+    line-height: 1.6;
+    color: #343a40;
+    margin-bottom: 0; 
+}
+
+#current-call-card p strong {
+    font-weight: 500; /* Medium weight for 'SID:' */
+    color: #6c757d; /* Gray label */
+    margin-right: 8px;
+}
+
+#current-call-card #current-call-sid {
+    font-family: inherit; /* Use default font */
+    font-weight: 500;
+    background-color: transparent; /* Remove background */
+    padding: 0; /* Remove padding */
+    border-radius: 0;
+}
+
+/* WebSocket Status */
+#websocket-status-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+#websocket-status-card h2 {
+    margin-bottom: 0; /* Remove margin for flex alignment */
+    border-bottom: none; /* Remove border for this specific h2 */
+    padding-bottom: 0;
+}
+
+/* Container for the badge to control its size/positioning if needed */
+.status-container {
+    display: inline-block; /* Or flex, depending on layout needs */
+}
+
+.status-badge {
+    padding: 5px 12px; /* Adjusted padding */
+    border-radius: 16px; /* Pill shape */
+    font-size: 0.8rem; /* Slightly smaller text */
+    font-weight: 600; /* Bolder badge text */
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.status-badge.connected {
+    background-color: #28a745; /* Bootstrap success green (matches screenshot) */
+    color: #ffffff;
+}
+
+.status-badge.disconnected {
+    background-color: #dc3545; /* Bootstrap danger red */
+    color: #ffffff;
+}
+
+/* System Logs */
+.logs-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 300px; /* Adjusted max-height */
+    overflow-y: auto;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+}
+
+.logs-list li {
+    padding: 10px 15px; /* Adjusted padding */
+    border-bottom: 1px solid #f1f3f5; /* Lighter separator */
+    font-size: 0.9rem; /* Adjusted font size */
+    color: #495057;
+}
+
+.logs-list li:last-child {
+    border-bottom: none;
+}
+
+.log-time {
+    display: block; /* Make time take full line */
+    font-family: monospace; /* Keep monospace for time */
+    font-size: 0.8rem; /* Slightly smaller time */
+    color: #6c757d; /* Grey text for time */
+    margin-bottom: 4px; /* Space between time and message */
+}
+
+.log-message {
+    display: block; /* Ensure message is on its own line */
+    word-break: break-word;
+}
+
+/* Remove placeholder styles if not needed */
+/* .placeholder-section { ... } */ 

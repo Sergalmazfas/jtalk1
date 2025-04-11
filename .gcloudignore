@@ -49,4 +49,20 @@ temp/
 
 # Build output (will be generated during build)
 # dist/  # Commented out to ensure dist directory is included
-out/ 
+out/
+
+# Игнорировать всё по умолчанию
+*
+
+# Но явно разрешить ключевые файлы и папки
+!/Dockerfile
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+!/.env.production
+!/src/
+!/src/**
+!/public/
+!/public/**
+!/credentials/
+!/credentials/** 

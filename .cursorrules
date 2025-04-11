@@ -1,0 +1,8 @@
+{
+  "denyCommands": [
+    "npm run start"
+  ],
+  "rules": {
+    "production-only": "Проект запускается только через Cloud Run. Локальный запуск запрещён."
+  }
+} 

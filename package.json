@@ -5,11 +5,10 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
     "deploy": "gcloud builds submit --tag gcr.io/talkhint/talkhint-backend && gcloud run deploy talkhint-backend --image gcr.io/talkhint/talkhint-backend --platform managed --region us-central1 --allow-unauthenticated --port 8080"
   },
   "dependencies": {
-    "@google-cloud/speech": "^6.1.0",
+    "@google-cloud/speech": "^6.7.1",
     "@google-cloud/translate": "^7.0.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
@@ -18,11 +17,12 @@
     "ws": "^8.14.2"
   },
   "devDependencies": {
-    "ts-node": "^10.9.1",
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.0",
     "@types/uuid": "^9.0.7",
     "@types/ws": "^8.5.10",
+    "live-server": "^1.2.2",
+    "ts-node": "^10.9.1",
     "typescript": "^5.3.2"
   },
   "engines": {

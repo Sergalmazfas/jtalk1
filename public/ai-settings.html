@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Settings — TalkHint</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f6f9fc;
+      padding: 2rem;
+      color: #222;
+    }
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 0.5rem;
+    }
+    h2 {
+      font-size: 1.2rem;
+      font-weight: normal;
+      color: #666;
+      margin-bottom: 1.5rem;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.3rem;
+      font-weight: bold;
+    }
+    select, textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      box-sizing: border-box;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+    }
+    button {
+      padding: 12px 24px;
+      font-size: 1rem;
+      background-color: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #statusMessage {
+      margin-top: 1rem;
+      color: green;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    a {
+      display: inline-block;
+      margin-top: 2rem;
+      text-decoration: none;
+      color: #007bff;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>TalkHint — TalkEasy</h1>
+  <h2>Customize your assistant model and behavior</h2>
+
+  <label for="aiModel">Select AI Model:</label>
+  <select id="aiModel">
+    <option value="gemini_2.5">Gemini 2.5</option>
+    <option value="gpt_chat_4.0">GPT-Chat 4.0</option>
+  </select>
+
+  <label for="aiPrompt">Custom Prompt:</label>
+  <textarea id="aiPrompt" rows="8" placeholder="e.g. When the call is about windows, suggest polite questions to clarify the need."></textarea>
+
+  <button id="saveButton">Save Settings</button>
+  <div id="statusMessage">Settings saved successfully!</div>
+
+  <a href="/">← Back to main</a>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const aiModel = document.getElementById('aiModel');
+      const aiPrompt = document.getElementById('aiPrompt');
+      const statusMessage = document.getElementById('statusMessage');
+      const saveButton = document.getElementById('saveButton');
+
+      // Define allowed model values
+      const allowedModels = Array.from(aiModel.options).map(option => option.value);
+
+      // Load saved values
+      const savedModel = localStorage.getItem('talkhint_ai_model');
+      const savedPrompt = localStorage.getItem('talkhint_ai_prompt');
+
+      // Set model value, defaulting to the first option if saved value is invalid or not found
+      if (savedModel && allowedModels.includes(savedModel)) {
+          aiModel.value = savedModel;
+      } else {
+          aiModel.value = allowedModels[0]; // Default to the first option (Gemini 2.5)
+          if (savedModel) {
+              console.log(`Saved model '${savedModel}' is no longer valid. Resetting to default.`);
+              // Optionally clear the invalid value from localStorage
+              // localStorage.removeItem('talkhint_ai_model'); 
+          }
+      }
+      
+      if (savedPrompt) aiPrompt.value = savedPrompt;
+
+      // Save button logic
+      saveButton.addEventListener('click', () => {
+        localStorage.setItem('talkhint_ai_model', aiModel.value);
+        localStorage.setItem('talkhint_ai_prompt', aiPrompt.value);
+        statusMessage.style.opacity = 1;
+        setTimeout(() => statusMessage.style.opacity = 0, 3000);
+      });
+    });
+  </script>
+
+</body>
+</html> 

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TalkHint - Admin Console</title>
+    <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+    <div class="admin-container">
+        <header class="admin-header">
+            <h1>TalkHint – Admin Console</h1>
+        </header>
+
+        <!-- WebSocket Status Card -->
+        <section class="admin-card" id="websocket-status-card">
+            <h2>WebSocket Status</h2>
+            <div class="status-container">
+                 <span class="status-badge disconnected" id="ws-status-badge">Disconnected</span> <!-- Default to disconnected -->
+            </div>
+        </section>
+
+        <!-- Current Call Card -->
+        <section class="admin-card" id="current-call-card">
+            <h2>Current Call</h2>
+            <p><strong>SID:</strong> <span id="current-call-sid">N/A</span></p> 
+        </section>
+
+        <!-- System Logs Card -->
+        <section class="admin-card" id="system-logs-card">
+            <h2>System Logs</h2>
+            <ul id="system-logs-list" class="logs-list">
+                <!-- Logs will be added here dynamically by JS -->
+                 <li>
+                     <span class="log-time">--:--:--</span>
+                     <span class="log-message">Waiting for connection...</span>
+                 </li>
+            </ul>
+        </section>
+
+    </div>
+
+    <!-- Link JS file for dynamic updates -->
+    <script src="/js/admin.js" defer></script> 
+</body>
+</html> 
