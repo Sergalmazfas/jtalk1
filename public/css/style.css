@@ -1,0 +1,52 @@
+/* Add other styles as needed */
+
+/* ADDED: Hint Card Styles */
+.hint-cards-container {
+    display: flex;
+    flex-wrap: wrap; /* Allow cards to wrap on smaller screens */
+    justify-content: center; /* Center cards horizontally */
+    gap: 10px; /* Space between cards */
+    padding: 15px;
+    background-color: #f0f0f0; /* Light background for the container */
+    border-top: 1px solid #ccc;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    box-sizing: border-box;
+    max-height: 25vh; /* Limit height */
+    overflow-y: auto; /* Allow scrolling if cards exceed height */
+    z-index: 10; /* Ensure it's above other content if needed */
+}
+
+.hint-card {
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    font-size: 0.9em;
+    max-width: 250px; /* Limit width */
+    text-align: left; /* Align text left */
+}
+
+.hint-card:hover {
+    background-color: #e9f5ff; /* Light blue hover */
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.hint-card .english {
+    font-weight: bold;
+    display: block;
+    margin-bottom: 4px;
+    color: #333;
+}
+
+.hint-card .russian {
+    font-size: 0.9em;
+    color: #666;
+    display: block;
+}
+/* END ADDED */ 
