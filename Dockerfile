@@ -18,7 +18,7 @@ COPY src/ ./src/
 COPY public/ ./public/
 
 # Copy production environment variables
-COPY .env.production .env
+COPY .env.cloudrun .env
 
 # Build TypeScript
 RUN npm run build
