@@ -38,7 +38,7 @@ ENV PORT=8080
 EXPOSE 8080
 
 # Add health check with longer timeout
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD curl -f http://localhost:8080/ || exit 1
 
 # Start the application with proper signal handling

@@ -12,7 +12,7 @@ yarn-error.log*
 # Environment and secrets
 .env
 .env.*
-!.env.production
+!.env.cloudrun
 credentials/
 **/credentials/
 *.pem
@@ -59,7 +59,7 @@ out/
 !/package.json
 !/package-lock.json
 !/tsconfig.json
-!/.env.production
+!/.env.cloudrun
 !/src/
 !/src/**
 !/public/
