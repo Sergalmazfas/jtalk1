@@ -332,10 +332,45 @@ class JTalk1 {
 
 // Initialize the application when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    window.jtalk1 = new JTalk1();
+    // Ensure JTalk1 initialization happens if the class exists
+    if (typeof JTalk1 !== 'undefined') {
+        window.jtalk1 = new JTalk1();
+    } else {
+        console.warn('JTalk1 class not defined, skipping initialization.');
+    }
 });
 
-// --- Simple Consent Banner Logic ---
+// --- Simple Consent Banner Logic (New Version) ---
+function acceptConsent() {
+  localStorage.setItem("cookieConsent", "true");
+  const banner = document.getElementById("consent-banner");
+  if (banner) {
+      banner.style.display = "none";
+  } else {
+      console.error("Consent banner element not found when trying to hide.");
+  }
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  if (localStorage.getItem("cookieConsent") !== "true") {
+    const banner = document.getElementById("consent-banner");
+    // Check if banner exists before trying to display it
+    if (banner) {
+        // Set display to block explicitly, as initial style might be none
+        banner.style.display = "block"; 
+    } else {
+        // Don't log error here if it's already hidden by localStorage check
+        // console.error("Consent banner element not found on initial load!");
+    }
+  } else {
+    // Ensure banner is hidden if consent was already given
+    const banner = document.getElementById("consent-banner");
+    if (banner) banner.style.display = "none";
+  }
+});
+
+/* 
+// --- Simple Consent Banner Logic (Old Version - REMOVED) ---
 document.addEventListener('DOMContentLoaded', () => {
     const consentBanner = document.getElementById('consent-banner');
     if (!consentBanner) return; // Exit if banner HTML not found
@@ -357,3 +392,4 @@ document.addEventListener('DOMContentLoaded', () => {
         consentBanner.style.display = 'none';
     });
 }); 
+*/ 
