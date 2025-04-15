@@ -339,22 +339,26 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('DOMContentLoaded', () => {
     const consentBanner = document.getElementById('consent-banner');
     const acceptButton = document.getElementById('accept-consent');
+    const consentOverlay = document.getElementById('consent-overlay'); // Get overlay element
 
-    if (!consentBanner || !acceptButton) {
-        console.warn('Consent banner elements not found.');
+    if (!consentBanner || !acceptButton || !consentOverlay) { // Check for overlay too
+        console.warn('Consent banner or overlay elements not found.');
         return;
     }
 
     // Check if consent already given
     if (localStorage.getItem('cookieConsent') === 'true') {
         consentBanner.style.display = 'none';
+        consentOverlay.style.display = 'none'; // Hide overlay if consent given
     } else {
         consentBanner.style.display = 'block';
+        consentOverlay.style.display = 'block'; // Show overlay if no consent
     }
 
     // Handle accept button click
     acceptButton.addEventListener('click', () => {
         localStorage.setItem('cookieConsent', 'true');
         consentBanner.style.display = 'none';
+        consentOverlay.style.display = 'none'; // Hide overlay on accept
     });
 }); 
