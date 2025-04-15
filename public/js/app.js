@@ -100,7 +100,9 @@ class JTalk1 {
 
     setupUI() {
         const startCalibrationBtn = document.getElementById('start-calibration');
-        startCalibrationBtn.addEventListener('click', () => this.startCalibration());
+        if (startCalibrationBtn) {
+            startCalibrationBtn.addEventListener('click', () => this.startCalibration());
+        }
         
         // Initialize speaker indicators
         this.updateSpeakerIndicator(null);
@@ -344,43 +346,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ++ Add helper functions to disable/enable calling UI ++
 function disableCallingUI() {
-  const phoneInput = document.querySelector('input[type="tel"], input[type="text"]');
-  const callButton = document.querySelector('button#callButton, button[type="submit"]');
+  let phoneInput = document.querySelector('input[type="tel"], input[type="text"]');
+  let callButton = document.querySelector('button#call-button, button[type="submit"]');
 
   if (phoneInput) {
       phoneInput.disabled = true;
-      // phoneInput.placeholder = 'Please accept policies first'; // Placeholder update can be optional
-      console.log('Calling UI disabled: Phone input disabled.');
-  } else {
-      console.warn('Phone input element not found for disabling.'); // Log if selector fails
+      // console.log('Calling UI disabled: Phone input disabled.');
   }
   if (callButton) {
       callButton.disabled = true;
-      // Visual disabling can be done via CSS if preferred
-      console.log('Calling UI disabled: Call button disabled.');
-  } else {
-      console.warn('Call button element not found for disabling.'); // Log if selector fails
+      // console.log('Calling UI disabled: Call button disabled.');
   }
 }
 
 function enableCallingUI() {
-  const phoneInput = document.querySelector('input[type="tel"], input[type="text"]');
-  const callButton = document.querySelector('button#callButton, button[type="submit"]');
+  let phoneInput = document.querySelector('input[type="tel"], input[type="text"]');
+  let callButton = document.querySelector('button#call-button, button[type="submit"]');
 
   if (phoneInput) {
       phoneInput.disabled = false;
-      // phoneInput.placeholder = 'Enter phone number'; // Restore placeholder
-      console.log('Calling UI enabled: Phone input enabled.');
-  } else {
-      console.warn('Phone input element not found for enabling.');
+      // console.log('Calling UI enabled: Phone input enabled.');
   }
   if (callButton) {
       callButton.disabled = false;
-      // callButton.style.opacity = 1; // Restore opacity
-      // callButton.style.cursor = 'pointer'; // Restore cursor
-      console.log('Calling UI enabled: Call button enabled.');
-  } else {
-      console.warn('Call button element not found for enabling.');
+      // console.log('Calling UI enabled: Call button enabled.');
   }
 }
 // ++ End helper functions ++
@@ -388,25 +377,15 @@ function enableCallingUI() {
 function acceptConsent() {
   localStorage.setItem("cookieConsent", "true");
   const banner = document.getElementById("consent-banner");
-  if (banner) {
-      banner.style.display = "none";
-  } else {
-      console.error("Consent banner element not found when trying to hide.");
-  }
+  if (banner) banner.style.display = "none";
   enableCallingUI(); // ++ Enable calling UI after consent ++
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  const banner = document.getElementById("consent-banner"); // Find banner element once
+  const banner = document.getElementById("consent-banner");
 
   if (localStorage.getItem("cookieConsent") !== "true") {
-    // Check if banner exists before trying to display it
-    if (banner) {
-        // Set display to block explicitly, as initial style might be none
-        banner.style.display = "block";
-    } else {
-        // console.error("Consent banner element not found on initial load!"); // Log if needed
-    }
+    if (banner) banner.style.display = "block";
     disableCallingUI(); // ++ Disable calling UI if no consent ++
   } else {
     // Ensure banner is hidden if consent was already given
