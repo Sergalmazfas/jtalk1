@@ -57,5 +57,44 @@
     <!-- Add admin-specific content here later -->
     
     <script src="/js/admin.js"></script> <!-- ADDED script include -->
+
+    <!-- Consent Banner -->
+    <div id="consent-banner">
+        <p>
+            By continuing to use this site, you agree to our
+            <a href="/terms" target="_blank">Terms of Service</a>,
+            <a href="/privacy" target="_blank">Privacy Policy</a>, and
+            <a href="/call-policy" target="_blank">Call Policy</a>.
+            This service is provided by All Digital Land LLC. No calls are recorded.
+            For questions, contact Irina Toma at alldigitalland@outlook.com or +1 (754) 230-0884.
+        </p>
+        <button id="accept-consent">Accept</button>
+    </div>
+
+    <script>
+        // --- Consent Banner Logic ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const consentBanner = document.getElementById('consent-banner');
+            const acceptButton = document.getElementById('accept-consent');
+
+            if (!consentBanner || !acceptButton) {
+                console.warn('Consent banner elements not found.');
+                return;
+            }
+
+            // Check if consent already given
+            if (localStorage.getItem('cookieConsent') === 'true') {
+                consentBanner.style.display = 'none';
+            } else {
+                consentBanner.style.display = 'block';
+            }
+
+            // Handle accept button click
+            acceptButton.addEventListener('click', () => {
+                localStorage.setItem('cookieConsent', 'true');
+                consentBanner.style.display = 'none';
+            });
+        });
+    </script>
 </body>
 </html> 

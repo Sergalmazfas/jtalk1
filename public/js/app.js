@@ -333,4 +333,28 @@ class JTalk1 {
 // Initialize the application when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.jtalk1 = new JTalk1();
+});
+
+// --- Consent Banner Logic ---
+document.addEventListener('DOMContentLoaded', () => {
+    const consentBanner = document.getElementById('consent-banner');
+    const acceptButton = document.getElementById('accept-consent');
+
+    if (!consentBanner || !acceptButton) {
+        console.warn('Consent banner elements not found.');
+        return;
+    }
+
+    // Check if consent already given
+    if (localStorage.getItem('cookieConsent') === 'true') {
+        consentBanner.style.display = 'none';
+    } else {
+        consentBanner.style.display = 'block';
+    }
+
+    // Handle accept button click
+    acceptButton.addEventListener('click', () => {
+        localStorage.setItem('cookieConsent', 'true');
+        consentBanner.style.display = 'none';
+    });
 }); 

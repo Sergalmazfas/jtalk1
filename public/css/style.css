@@ -49,4 +49,45 @@
     color: #666;
     display: block;
 }
-/* END ADDED */ 
+/* END ADDED */
+
+/* Consent Banner Styles */
+#consent-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background-color: #ffffff;
+  border-top: 1px solid #ccc;
+  padding: 15px;
+  box-sizing: border-box;
+  z-index: 1000;
+  font-size: 14px;
+  color: #000000;
+  text-align: center;
+  display: none; /* Hidden by default, shown by JS */
+}
+
+#consent-banner p {
+  margin: 0 0 10px 0;
+  line-height: 1.4;
+}
+
+#consent-banner a {
+  color: #007bff; /* Blue links */
+  text-decoration: underline;
+}
+
+#consent-banner button {
+  background-color: #28a745; /* Green button */
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+#consent-banner button:hover {
+  background-color: #218838;
+} 
