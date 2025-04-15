@@ -341,6 +341,51 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // --- Simple Consent Banner Logic (New Version) ---
+
+// ++ Add helper functions to disable/enable calling UI ++
+function disableCallingUI() {
+  const phoneInput = document.getElementById('phoneNumber'); // Target specific ID
+  const callButton = document.getElementById('callButton'); // Target specific ID
+
+  if (phoneInput) {
+      phoneInput.disabled = true;
+      phoneInput.placeholder = 'Please accept policies first'; // Update placeholder
+      console.log('Calling UI disabled: Phone input disabled.');
+  } else {
+      // console.warn('Phone input element not found for disabling.'); // Only log if needed
+  }
+  if (callButton) {
+      callButton.disabled = true;
+      callButton.style.opacity = 0.5; // Visually indicate disabled state
+      callButton.style.cursor = 'not-allowed';
+      console.log('Calling UI disabled: Call button disabled.');
+  } else {
+      // console.warn('Call button element not found for disabling.'); // Only log if needed
+  }
+}
+
+function enableCallingUI() {
+  const phoneInput = document.getElementById('phoneNumber');
+  const callButton = document.getElementById('callButton');
+
+  if (phoneInput) {
+      phoneInput.disabled = false;
+      phoneInput.placeholder = 'Enter phone number'; // Restore placeholder
+      console.log('Calling UI enabled: Phone input enabled.');
+  } else {
+      // console.warn('Phone input element not found for enabling.');
+  }
+  if (callButton) {
+      callButton.disabled = false;
+      callButton.style.opacity = 1; // Restore opacity
+      callButton.style.cursor = 'pointer'; // Restore cursor
+      console.log('Calling UI enabled: Call button enabled.');
+  } else {
+      // console.warn('Call button element not found for enabling.');
+  }
+}
+// ++ End helper functions ++
+
 function acceptConsent() {
   localStorage.setItem("cookieConsent", "true");
   const banner = document.getElementById("consent-banner");
@@ -349,23 +394,25 @@ function acceptConsent() {
   } else {
       console.error("Consent banner element not found when trying to hide.");
   }
+  enableCallingUI(); // ++ Enable calling UI after consent ++
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  const banner = document.getElementById("consent-banner"); // Find banner element once
+
   if (localStorage.getItem("cookieConsent") !== "true") {
-    const banner = document.getElementById("consent-banner");
     // Check if banner exists before trying to display it
     if (banner) {
         // Set display to block explicitly, as initial style might be none
-        banner.style.display = "block"; 
+        banner.style.display = "block";
     } else {
-        // Don't log error here if it's already hidden by localStorage check
-        // console.error("Consent banner element not found on initial load!");
+        // console.error("Consent banner element not found on initial load!"); // Log if needed
     }
+    disableCallingUI(); // ++ Disable calling UI if no consent ++
   } else {
     // Ensure banner is hidden if consent was already given
-    const banner = document.getElementById("consent-banner");
     if (banner) banner.style.display = "none";
+    enableCallingUI(); // ++ Enable calling UI if consent exists ++
   }
 });
 
