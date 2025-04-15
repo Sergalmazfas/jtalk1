@@ -9,23 +9,14 @@ import { Twilio } from 'twilio';
 // Load environment variables
 dotenv.config();
 
-// Twilio credentials
+// Twilio credentials (remove validation from top level)
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioNumber = process.env.TWILIO_PHONE_NUMBER;
 const webhookUrl = process.env.WEBHOOK_URL;
 
-// Validate credentials
-if (!accountSid || !authToken || !twilioNumber || !webhookUrl) {
-  throw new Error('Missing required Twilio credentials. Please set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, and WEBHOOK_URL');
-}
-
-if (!accountSid.startsWith('AC')) {
-  throw new Error('Invalid TWILIO_ACCOUNT_SID format. It should start with "AC"');
-}
-
-// Initialize Twilio client
-const twilioClient = new Twilio(accountSid, authToken);
+// Initialize Twilio client conditionally later if needed
+let twilioClient: Twilio | null = null;
 
 // Initialize Google Speech-to-Text client
 const speechClient = new SpeechClient();
@@ -34,20 +25,28 @@ const speechClient = new SpeechClient();
 const activeCalls = new Map<string, any>();
 
 /**
- * Verify Twilio credentials
+ * Verify Twilio credentials and webhook URL
  */
 export async function verifyTwilioCredentials(): Promise<boolean> {
   try {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    // Reload variables inside the function to ensure they are fresh
+    const currentAccountSid = process.env.TWILIO_ACCOUNT_SID;
+    const currentAuthToken = process.env.TWILIO_AUTH_TOKEN;
+    const currentWebhookUrl = process.env.WEBHOOK_URL; // Check webhook URL here
+    const currentTwilioNumber = process.env.TWILIO_PHONE_NUMBER;
 
-    if (!accountSid || !authToken) {
-      console.error('Missing Twilio credentials');
+    if (!currentAccountSid || !currentAuthToken || !currentWebhookUrl || !currentTwilioNumber) {
+      console.error('CRITICAL: Missing required Twilio environment variables (SID, Token, Number, Webhook URL).');
       return false;
     }
+    if (!currentAccountSid.startsWith('AC')) {
+       console.error('Invalid TWILIO_ACCOUNT_SID format.');
+       return false;
+    }
 
-    const client = twilio(accountSid, authToken);
-    const account = await client.api.accounts(accountSid).fetch();
+    // Initialize client only if needed for verification
+    const client = twilio(currentAccountSid, currentAuthToken);
+    const account = await client.api.accounts(currentAccountSid).fetch();
     
     if (account.status !== 'active') {
       console.error('Twilio account is not active');
@@ -66,18 +65,22 @@ export async function verifyTwilioCredentials(): Promise<boolean> {
  */
 export async function initTwilioService() {
   try {
-    console.log('Initializing Twilio service...');
+    // console.log('Initializing Twilio service...');
     
     // Verify credentials first
     const isValid = await verifyTwilioCredentials();
     if (!isValid) {
-      throw new Error('Invalid Twilio credentials');
+      console.error('FATAL: Twilio configuration is invalid. Telephony features will be disabled.');
+      return; // Exit initialization, but don't crash the app
     }
+
+    // Initialize the client now that credentials are known to be valid
+    twilioClient = new Twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
     
     // Configure phone number
     await configurePhoneNumber();
     
-    console.log('Twilio service initialized successfully');
+    // console.log('Twilio service initialized successfully');
   } catch (error) {
     const twilioError = error as Error;
     console.error('Error initializing Twilio service:', {
@@ -94,6 +97,10 @@ export async function initTwilioService() {
  */
 async function configurePhoneNumber() {
   try {
+    if (!twilioClient) {
+      console.error('configurePhoneNumber called before Twilio client was initialized.');
+      return;
+    }
     const phoneNumber = await twilioClient.incomingPhoneNumbers
       .list({ phoneNumber: twilioNumber })
       .then(numbers => numbers[0]);
@@ -123,11 +130,11 @@ async function configurePhoneNumber() {
           recordingStatusCallbackEvent: ['completed', 'failed'],
           
           // Transcription configuration
-          transcribe: true,
-          transcribeCallback: `${webhookUrl}/transcription-complete`,
-          transcribeCallbackMethod: 'POST'
+          // transcribe: true,
+          // transcribeCallback: `${webhookUrl}/transcription-complete`,
+          // transcribeCallbackMethod: 'POST'
         } as IncomingPhoneNumberContextUpdateOptions);
-      console.log('✅ Phone number configured for voice webhooks');
+      // console.log('✅ Phone number configured for voice webhooks');
     } else {
       console.error('❌ Phone number not found in your Twilio account');
     }
@@ -143,9 +150,13 @@ async function configurePhoneNumber() {
  * @returns Call SID
  */
 export async function makeCall(phoneNumber: string, webhookUrl: string): Promise<string> {
-  console.log('Making call to:', phoneNumber);
-  console.log('Using webhook URL:', webhookUrl);
+  // console.log('Making call to:', phoneNumber);
+  // console.log('Using webhook URL:', webhookUrl);
   
+  if (!twilioClient) {
+    throw new Error('Twilio client is not initialized. Cannot make call.');
+  }
+
   if (!accountSid || !authToken || !twilioNumber) {
     throw new Error('Twilio credentials not configured');
   }
@@ -160,7 +171,7 @@ export async function makeCall(phoneNumber: string, webhookUrl: string): Promise
       statusCallbackMethod: 'POST'
     });
 
-    console.log('Call created:', call.sid);
+    // console.log('Call created:', call.sid);
     return call.sid;
   } catch (error) {
     console.error('Error making call:', error);
@@ -221,7 +232,7 @@ export async function handleCall(
     
     // If call is completed and we have a recording, process it
     if (status === 'completed' && recordingUrl) {
-      console.log(`Call ${callSid} completed with recording: ${recordingUrl}`);
+      // console.log(`Call ${callSid} completed with recording: ${recordingUrl}`);
       
       // Download the recording
       const recordingPath = path.join(__dirname, '../data/recordings', `${callSid}.wav`);
@@ -236,7 +247,7 @@ export async function handleCall(
       const buffer = await response.arrayBuffer();
       fs.writeFileSync(recordingPath, Buffer.from(buffer));
       
-      console.log(`Recording saved to ${recordingPath}`);
+      // console.log(`Recording saved to ${recordingPath}`);
       
       // Process the recording with Google Speech-to-Text
       await processRecording(recordingPath, callSid);
@@ -253,6 +264,7 @@ export async function handleCall(
  */
 async function processRecording(recordingPath: string, callSid: string): Promise<void> {
   try {
+    // console.log(`Processing recording: ${recordingPath} for call ${callSid}`);
     // Read the recording file
     const audioBytes = fs.readFileSync(recordingPath).toString('base64');
     
@@ -280,6 +292,7 @@ async function processRecording(recordingPath: string, callSid: string): Promise
       ?.map((result: any) => result.alternatives?.[0]?.transcript)
       .join('\n');
     
+    // console.log('Transcription results:', transcription);
     console.log(`Transcription for call ${callSid}: ${transcription}`);
     
     // Store the transcription
@@ -293,6 +306,7 @@ async function processRecording(recordingPath: string, callSid: string): Promise
     // Save the transcription
     fs.writeFileSync(transcriptionPath, transcription || '');
     
+    // console.log(`Transcription saved for call ${callSid}`);
     console.log(`Transcription saved to ${transcriptionPath}`);
   } catch (error) {
     console.error(`Error processing recording for call ${callSid}:`, error);
@@ -322,10 +336,13 @@ export function getCall(callSid: string): any {
  * @returns Promise that resolves when the call is ended
  */
 export async function endCall(callSid: string): Promise<void> {
+  if (!twilioClient) {
+    throw new Error('Twilio client is not initialized. Cannot end call.');
+  }
   try {
-    console.log(`Ending call ${callSid}`);
+    console.log(`Ending call: ${callSid}`);
     await twilioClient.calls(callSid).update({ status: 'completed' });
-    console.log(`Call ${callSid} ended successfully`);
+    // console.log(`Call ${callSid} ended successfully`);
   } catch (error) {
     console.error(`Error ending call ${callSid}:`, error);
     throw error;

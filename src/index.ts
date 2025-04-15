@@ -326,18 +326,14 @@ app.post('/api/recording-complete', async (req, res) => { ... });
 app.post('/api/transcription-complete', async (req, res) => { ... });
 */
 
-// --- WebSocket Server Event Handling (Conditionally attach handlers) ---
-
-if (TELEPHONY_ENABLED) {
-  wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
-    // Use 'parse' from 'url' to handle potential undefined request.url
+// --- Centralized WebSocket Connection Handler ---
+wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
     const parsedUrl = parse(request.url || '', true);
     const pathname = parsedUrl.pathname;
-    const query = parsedUrl.query; // query is already parsed into an object
+    const query = parsedUrl.query;
+    // console.log(`WebSocket connection attempt for path: ${pathname}`); // Debug log commented
 
-    // Handle the regular client UI connection (/ws)
     if (pathname === '/ws') {
-        // Use sec-websocket-key as the unique ID for UI clients
         const wsClientId = request.headers['sec-websocket-key'] as string;
         if (!wsClientId) {
             console.error('No sec-websocket-key provided for client UI connection');
@@ -345,50 +341,43 @@ if (TELEPHONY_ENABLED) {
             return;
         }
         
-        // Close existing connection if any for the same key
         if (connections.has(wsClientId)) {
-            console.log(`Closing existing UI connection for client ${wsClientId}`);
+            // console.log(`Closing existing UI connection for client ${wsClientId}`); // Debug log commented
             const oldWs = connections.get(wsClientId);
             oldWs?.close(1001, 'New UI connection replacing existing one');
-            // Clean up maps for the old connection
             connections.delete(wsClientId);
-            uiClients.delete(wsClientId); // Remove from uiClients too
+            uiClients.delete(wsClientId); 
             const oldCallSid = clientCallMap.get(wsClientId);
             if (oldCallSid) callClientMap.delete(oldCallSid);
             clientCallMap.delete(wsClientId);
         }
 
-        // Store the new connection
         connections.set(wsClientId, ws);
-        uiClients.set(wsClientId, ws); // Store in uiClients as well
-        console.log(`New WebSocket connection established for client UI: ${wsClientId}`);
+        uiClients.set(wsClientId, ws); 
+        // console.log(`New WebSocket connection established for client UI: ${wsClientId}`); // Debug log commented
 
-        // Send confirmation to client
         ws.send(JSON.stringify({ type: 'connected', clientId: wsClientId }));
+        ws.send(JSON.stringify({ type: 'system_message', text: 'Connected to TalkHint WebSocket' }));
 
-        // Standard message/close/error handlers for UI client
         ws.on('message', (message) => {
+             // Existing message handling logic for UI client...
             try {
                 const data = JSON.parse(message.toString());
-                console.log(`Received message from client UI ${wsClientId}:`, data);
+                // console.log(`Received message from client UI ${wsClientId}:`, data); // Debug log commented
 
                 if (data.type === 'call_request' && data.phoneNumber) {
-                   // Check if Twilio client is available before using it
-                   if (twilioClient) { 
+                   if (twilioClient && TELEPHONY_ENABLED) { 
                       const webhookUrl = `${process.env.WEBHOOK_URL}/twilio-webhook`;
-                      console.log(`Initiating call from UI ${wsClientId} to ${data.phoneNumber}`);
-                      // Now it's safe to use twilioClient
+                      // console.log(`Initiating call from UI ${wsClientId} to ${data.phoneNumber}`); // Debug log commented
                       twilioClient.calls.create({ 
                           to: data.phoneNumber,
-                          from: process.env.TWILIO_PHONE_NUMBER!, // Ensure non-null if TELEPHONY_ENABLED
+                          from: process.env.TWILIO_PHONE_NUMBER!, 
                           url: webhookUrl,
                        })
                          .then(call => {
-                             console.log(`Call initiated via UI request, SID: ${call.sid}, Client: ${wsClientId}`);
-                             // Associate CallSid with clientId (sec-websocket-key)
+                             // console.log(`Call initiated via UI request, SID: ${call.sid}, Client: ${wsClientId}`); // Debug log commented
                              clientCallMap.set(wsClientId, call.sid);
-                             callClientMap.set(call.sid, wsClientId); // Store reverse mapping
-
+                             callClientMap.set(call.sid, wsClientId);
                              ws.send(JSON.stringify({ type: 'call_status', status: 'initiated', callSid: call.sid }));
                          })
                          .catch(error => {
@@ -400,21 +389,18 @@ if (TELEPHONY_ENABLED) {
                       ws.send(JSON.stringify({ type: 'error', message: 'Telephony is currently disabled on the server.' }));
                    }
                 }
-                /* // временно отключено из-за ошибки компиляции TS18047 --- ПЕРЕМЕЩЕНО НАЧАЛО КОММЕНТАРИЯ
-                else if (data.type === 'end_call' && data.callSid) {
-                     // Check if Twilio client is available FIRST
-                     if (twilioClient) { 
-                         const currentTwilioClient = twilioClient; // Create non-null local copy
+                 else if (data.type === 'end_call' && data.callSid) {
+                     if (twilioClient && TELEPHONY_ENABLED) { 
+                         const currentTwilioClient = twilioClient; 
                          const mappedClientId = callClientMap.get(data.callSid);
-                         // THEN check ownership
                          if (mappedClientId === wsClientId) { 
+                             // console.log(`Ending call ${data.callSid} requested by owner UI ${wsClientId}`); // Debug log commented
                              console.log(`Ending call ${data.callSid} requested by owner UI ${wsClientId}`);
-                             // Use the non-null local copy
                              currentTwilioClient.calls(data.callSid).update({ status: 'completed' })
                                  .then(call => {
+                                     // console.log(`Call ${call.sid} ended via UI request.`); // Debug log commented
                                      console.log(`Call ${call.sid} ended via UI request.`);
                                      ws.send(JSON.stringify({ type: 'call_status', status: 'ended', callSid: call.sid }));
-                                     // Clean up maps after ending
                                      callClientMap.delete(call.sid);
                                      clientCallMap.delete(wsClientId);
                                  })
@@ -427,21 +413,17 @@ if (TELEPHONY_ENABLED) {
                              ws.send(JSON.stringify({ type: 'error', message: 'Cannot end call: Not owner.' }));
                          }
                      } else {
-                          // Handle case where Twilio is disabled/unavailable
                           console.warn(`Cannot process end_call for ${data.callSid}: Telephony disabled.`);
                           ws.send(JSON.stringify({ type: 'error', message: 'Cannot end call: Telephony is disabled.' }));
                      }
                 }
-                */ // --- ДОБАВЛЕН КОНЕЦ КОММЕНТАРИЯ --- 
                 else {
-                    // Handle other messages like ping
                     switch (data.type) {
                         case 'ping':
                             ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
                             break;
-                        // Handle other potential messages from UI
                         default:
-                             console.log(`Unhandled message type from UI ${wsClientId}: ${data.type}`);
+                             // console.log(`Unhandled message type from UI ${wsClientId}: ${data.type}`); // Debug log commented
                     }
                 }
             } catch (error) {
@@ -451,21 +433,21 @@ if (TELEPHONY_ENABLED) {
         });
 
         ws.on('close', (code, reason) => {
-            console.log(`WebSocket connection closed for client UI: ${wsClientId}, Code: ${code}, Reason: ${reason?.toString()}`);
+            // console.log(`WebSocket connection closed for client UI: ${wsClientId}, Code: ${code}, Reason: ${reason?.toString()}`); // Debug log commented
             const associatedCallSid = clientCallMap.get(wsClientId);
             if (associatedCallSid) {
+                // console.log(`UI client ${wsClientId} disconnected, cleaning up associated call ${associatedCallSid}`); // Debug log commented
                 console.log(`UI client ${wsClientId} disconnected, cleaning up associated call ${associatedCallSid}`);
                 callClientMap.delete(associatedCallSid);
-                // Optionally end the call if the UI disconnects abruptly?
-                // twilioClient.calls(associatedCallSid).update({ status: 'completed' }).catch(e => console.error("Error ending call on UI disconnect:", e));
             }
             clientCallMap.delete(wsClientId);
             connections.delete(wsClientId);
-            uiClients.delete(wsClientId); // Remove from uiClients
+            uiClients.delete(wsClientId); 
         });
 
         ws.on('error', (error) => {
-            console.error(`WebSocket error for client UI ${wsClientId}:`, error);
+            // Existing error handling logic...
+             console.error(`WebSocket error for client UI ${wsClientId}:`, error);
             const associatedCallSid = clientCallMap.get(wsClientId);
             if (associatedCallSid) {
                  console.log(`UI client ${wsClientId} errored, cleaning up associated call ${associatedCallSid}`);
@@ -473,17 +455,14 @@ if (TELEPHONY_ENABLED) {
             }
             clientCallMap.delete(wsClientId);
             connections.delete(wsClientId);
-            uiClients.delete(wsClientId); // Remove from uiClients
-            // Attempt to close the WebSocket cleanly on error, if not already closed
+            uiClients.delete(wsClientId);
              if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
                  ws.close(1011, "WebSocket error occurred");
              }
         });
-
     }
     // Handle the Twilio audio stream connection (/audiostream)
-    else if (pathname === '/audiostream') {
-        // Extract clientId and callSid from query parameters
+    else if (pathname === '/audiostream' && TELEPHONY_ENABLED) {
         const clientIdFromQuery = query.clientId?.toString();
         const callSidFromQuery = query.callSid?.toString();
 
@@ -493,7 +472,6 @@ if (TELEPHONY_ENABLED) {
              return;
         }
         
-        // Verify the clientId corresponds to an active UI client connection
         const uiWs = uiClients.get(clientIdFromQuery); 
         if (!uiWs || uiWs.readyState !== WebSocket.OPEN) {
             console.error(`UI WebSocket not found or not open for clientId ${clientIdFromQuery} when audio stream connected for call ${callSidFromQuery}.`);
@@ -501,37 +479,37 @@ if (TELEPHONY_ENABLED) {
             return;
         }
 
-        // Now call the dedicated handler for the Twilio stream
-        handleTwilioStream(ws, callSidFromQuery!, clientIdFromQuery!);
-
-    } else {
-        console.warn('Unknown WebSocket connection attempt:', { pathname, query });
-        ws.close(1008, 'Invalid path or missing parameters');
+        handleTwilioStream(ws, callSidFromQuery!, clientIdFromQuery!); // Call the specific handler
     }
-  });
+    // Handle unknown paths
+    else {
+        console.warn('Unknown WebSocket connection path attempt:', { pathname, query }); // Keep this warning
+        ws.close(1008, 'Invalid WebSocket path');
+    }
+});
 
-  // Attach the upgrade handler
-  server.on('upgrade', (request, socket: Duplex, head) => { 
-    // Decide which path to handle (e.g., /ws or /audiostream)
-    // For simplicity, let wss attempt to handle any upgrade if telephony is enabled
-    // The connection handler above will sort out the paths.
-     wss.handleUpgrade(request, socket, head, (ws) => {
+// --- ADDED: Centralized WebSocket upgrade handler ---
+server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+  try {
+    const { pathname } = parse(request.url || '');
+    // console.log(`Handling upgrade request for path: ${pathname}`); // Debug log commented
+
+    // Only handle upgrades for specific paths
+    if (pathname === '/ws' || (pathname === '/audiostream' && TELEPHONY_ENABLED)) {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        // The 'connection' event defined above will handle the rest
         wss.emit('connection', ws, request);
-     });
-  });
-  console.log('TELEPHONY ENABLED: WebSocket server upgrade handler attached.');
-
-} else {
-  // If telephony is disabled, explicitly reject WebSocket upgrade attempts
-  server.on('upgrade', (request, socket: Duplex, head) => {
-    const url = parse(request.url || '', true);
-    console.warn(`[DISABLED] Rejecting WebSocket upgrade request for path: ${url.pathname}`);
-    // Terminate the socket for the upgrade request
-    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'); // Or 404 Not Found
+      });
+    } else {
+      // console.log(`WebSocket upgrade rejected for path: ${pathname}`); // Debug log commented
+      socket.destroy(); // Destroy socket for unhandled paths
+    }
+  } catch (err) {
+    console.error('Error handling WebSocket upgrade:', err);
     socket.destroy();
-  });
-  console.warn('TELEPHONY DISABLED: WebSocket server upgrade handler is not attached.');
-}
+  }
+});
+// --- END ADDED Handler ---
 
 // Handle call-related WebSocket messages
 function handleCallMessage(id: string, data: any) {
@@ -928,47 +906,43 @@ app.post('/twilio-webhook-fallback', (req, res) => {
 
 // Start the server
 if (process.env.NODE_ENV === 'production') {
-  // In production (like Cloud Run), listen on the port provided by the environment
-  server.listen(port, () => {
-    console.log('=== Server Ready ===');
-    console.log(`Environment: ${process.env.NODE_ENV}`);
-    // console.log(`Host: ${host}`); // Host is implicitly 0.0.0.0 in Cloud Run
-    console.log(`Port: ${port}`);
-    console.log(`WebSocket path: ${process.env.WS_PATH || '/ws'}`);
-    console.log(`Server URL: ${process.env.WEBHOOK_URL}`);
+  server.listen(port, host, () => {
+    console.log('=== Server Ready (Production) ==='); // Keep this essential log
+    console.log(`Port: ${port}`); // Keep this essential log
+    // console.log(`WebSocket path: ${process.env.WS_PATH || '/ws'}`); // Commented out less critical info
+    // console.log(`Server URL: ${process.env.WEBHOOK_URL}`); // Commented out less critical info
   });
 } else {
-  // In development, listen on the specified host and port
   server.listen(port, host, () => {
-    console.log('=== Server Ready ===');
-    console.log(`Environment: ${process.env.NODE_ENV}`);
-    console.log(`Host: ${host}`);
-    console.log(`Port: ${port}`);
-    console.log(`WebSocket path: ${process.env.WS_PATH || '/ws'}`);
-    console.log(`Server URL: ${process.env.WEBHOOK_URL}`);
+    console.log('=== Server Ready ==='); // Keep this essential log
+    console.log(`Environment: ${process.env.NODE_ENV}`); // Keep this essential log
+    console.log(`Host: ${host}`); // Keep this essential log
+    console.log(`Port: ${port}`); // Keep this essential log
+    // console.log(`WebSocket path: ${process.env.WS_PATH || '/ws'}`); // Commented out less critical info
+    // console.log(`Server URL: ${process.env.WEBHOOK_URL}`); // Commented out less critical info
   });
 }
 
 // Handle process termination
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
+  console.log('SIGTERM received, shutting down gracefully'); // Keep this important lifecycle log
   server.close(() => {
-    console.log('Server closed');
+    console.log('Server closed'); // Keep this important lifecycle log
     process.exit(0);
   });
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully');
+  console.log('SIGINT received, shutting down gracefully'); // Keep this important lifecycle log
   server.close(() => {
-    console.log('Server closed');
+    console.log('Server closed'); // Keep this important lifecycle log
     process.exit(0);
   });
 });
 
 // Handle server errors
 server.on('error', (error: Error) => {
-  console.error('HTTP server error:', {
+  console.error('HTTP server error:', { // Keep error logging
     error: error.message,
     stack: error.stack,
     timestamp: new Date().toISOString()
