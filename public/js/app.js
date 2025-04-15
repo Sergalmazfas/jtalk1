@@ -344,44 +344,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ++ Add helper functions to disable/enable calling UI ++
 function disableCallingUI() {
-  const phoneInput = document.getElementById('phoneNumber'); // Target specific ID
-  const callButton = document.getElementById('callButton'); // Target specific ID
+  const phoneInput = document.querySelector('input[type="tel"], input[type="text"]');
+  const callButton = document.querySelector('button#callButton, button[type="submit"]');
 
   if (phoneInput) {
       phoneInput.disabled = true;
-      phoneInput.placeholder = 'Please accept policies first'; // Update placeholder
+      // phoneInput.placeholder = 'Please accept policies first'; // Placeholder update can be optional
       console.log('Calling UI disabled: Phone input disabled.');
   } else {
-      // console.warn('Phone input element not found for disabling.'); // Only log if needed
+      console.warn('Phone input element not found for disabling.'); // Log if selector fails
   }
   if (callButton) {
       callButton.disabled = true;
-      callButton.style.opacity = 0.5; // Visually indicate disabled state
-      callButton.style.cursor = 'not-allowed';
+      // Visual disabling can be done via CSS if preferred
       console.log('Calling UI disabled: Call button disabled.');
   } else {
-      // console.warn('Call button element not found for disabling.'); // Only log if needed
+      console.warn('Call button element not found for disabling.'); // Log if selector fails
   }
 }
 
 function enableCallingUI() {
-  const phoneInput = document.getElementById('phoneNumber');
-  const callButton = document.getElementById('callButton');
+  const phoneInput = document.querySelector('input[type="tel"], input[type="text"]');
+  const callButton = document.querySelector('button#callButton, button[type="submit"]');
 
   if (phoneInput) {
       phoneInput.disabled = false;
-      phoneInput.placeholder = 'Enter phone number'; // Restore placeholder
+      // phoneInput.placeholder = 'Enter phone number'; // Restore placeholder
       console.log('Calling UI enabled: Phone input enabled.');
   } else {
-      // console.warn('Phone input element not found for enabling.');
+      console.warn('Phone input element not found for enabling.');
   }
   if (callButton) {
       callButton.disabled = false;
-      callButton.style.opacity = 1; // Restore opacity
-      callButton.style.cursor = 'pointer'; // Restore cursor
+      // callButton.style.opacity = 1; // Restore opacity
+      // callButton.style.cursor = 'pointer'; // Restore cursor
       console.log('Calling UI enabled: Call button enabled.');
   } else {
-      // console.warn('Call button element not found for enabling.');
+      console.warn('Call button element not found for enabling.');
   }
 }
 // ++ End helper functions ++
