@@ -339,26 +339,39 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('DOMContentLoaded', () => {
     const consentBanner = document.getElementById('consent-banner');
     const acceptButton = document.getElementById('accept-consent');
-    const consentOverlay = document.getElementById('consent-overlay'); // Get overlay element
+    const consentOverlay = document.getElementById('consent-overlay');
+    const phoneInput = document.getElementById('phoneNumber'); // Get phone input
+    const callButton = document.getElementById('callButton');   // Get call button
 
-    if (!consentBanner || !acceptButton || !consentOverlay) { // Check for overlay too
+    // Function to enable/disable UI elements
+    const setUIEnabled = (enabled) => {
+        if (phoneInput) phoneInput.disabled = !enabled;
+        if (callButton) callButton.disabled = !enabled;
+    };
+
+    if (!consentBanner || !acceptButton || !consentOverlay) {
         console.warn('Consent banner or overlay elements not found.');
+        // If banner is missing, assume consent or error, enable UI
+        setUIEnabled(true);
         return;
     }
 
     // Check if consent already given
     if (localStorage.getItem('cookieConsent') === 'true') {
         consentBanner.style.display = 'none';
-        consentOverlay.style.display = 'none'; // Hide overlay if consent given
+        consentOverlay.style.display = 'none';
+        setUIEnabled(true); // Enable UI if consent already given
     } else {
         consentBanner.style.display = 'block';
-        consentOverlay.style.display = 'block'; // Show overlay if no consent
+        consentOverlay.style.display = 'block';
+        setUIEnabled(false); // Disable UI if no consent
     }
 
     // Handle accept button click
     acceptButton.addEventListener('click', () => {
         localStorage.setItem('cookieConsent', 'true');
         consentBanner.style.display = 'none';
-        consentOverlay.style.display = 'none'; // Hide overlay on accept
+        consentOverlay.style.display = 'none';
+        setUIEnabled(true); // Enable UI on accept
     });
 }); 
