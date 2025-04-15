@@ -100,7 +100,9 @@ class JTalk1 {
 
     setupUI() {
         const startCalibrationBtn = document.getElementById('start-calibration');
-        startCalibrationBtn.addEventListener('click', () => this.startCalibration());
+        if (startCalibrationBtn) {
+            startCalibrationBtn.addEventListener('click', () => this.startCalibration());
+        }
         
         // Initialize speaker indicators
         this.updateSpeakerIndicator(null);
@@ -340,13 +342,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const consentBanner = document.getElementById('consent-banner');
     const acceptButton = document.getElementById('accept-consent');
     const consentOverlay = document.getElementById('consent-overlay');
-    const phoneInput = document.getElementById('phoneNumber'); // Get phone input
-    const callButton = document.getElementById('callButton');   // Get call button
+    const phoneInput = document.getElementById('phoneNumber');
 
     // Function to enable/disable UI elements
     const setUIEnabled = (enabled) => {
         if (phoneInput) phoneInput.disabled = !enabled;
-        if (callButton) callButton.disabled = !enabled;
+        if (window.callButton) window.callButton.disabled = !enabled;
     };
 
     if (!consentBanner || !acceptButton || !consentOverlay) {
