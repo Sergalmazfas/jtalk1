@@ -1,10 +1,44 @@
 ---
-description:
-globs:
+description: 
+globs: 
 alwaysApply: true
 ---
 
 # Your rule content
+TalkHint:
 
-- You can @ files here
-- You can use markdown but dont have to
+
+DEPLOY CHECKLIST: gold-00081 стандарт
+	1.	Сравнить код с эталоном jtalk1-gold:
+	•	Dockerfile
+	•	.env.cloudrun
+	•	WebSocket логика
+	2.	Убедиться:
+	•	В .env.cloudrun нет строки PORT=...
+	•	Все ENV переменные заданы вручную в Cloud Run:
+	•	TWILIO_ACCOUNT_SID
+	•	TWILIO_AUTH_TOKEN
+	•	TWILIO_PHONE_NUMBER
+	•	GOOGLE_APPLICATION_CREDENTIALS
+	•	REDIS_URL
+	•	JWT_SECRET, SESSION_SECRET
+	3.	Проверить:
+	•	CMD в Dockerfile: node dist/index.js
+	•	EXPOSE 8080 есть
+	•	HEALTHCHECK настроен
+	4.	Только после этого — деплой:
+
+gcloud builds submit --tag gcr.io/talkhint/talkhint-backend:[new-tag]
+gcloud run deploy talkhint-backend \
+  --image gcr.io/talkhint/talkhint-backend:[new-tag] \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated
+
+	5.	Проверить ревизию:
+	•	WebSocket подключается (/admin)
+	•	Телефонный звонок проходит
+	•	Cloud Run статус — зелёный
+
+
+
