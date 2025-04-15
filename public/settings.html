@@ -17,3 +17,37 @@ textarea {
      background-size: 10px 10px;
      padding-right: 30px; /* Make space for arrow */
 } 
+
+    </main>
+
+    <!-- Simple Consent Banner -->
+    <div id="consent-banner" style="display: none; /* Hidden by default, shown by JS */">
+        <p>
+            By continuing to use this site, you agree to our
+            <a href="/terms" target="_blank">Terms of Service</a>,
+            <a href="/privacy" target="_blank">Privacy Policy</a> and
+            <a href="/call-policy" target="_blank">Call Policy</a>.
+            This service is provided by All Digital Land LLC. No calls are recorded.
+            For questions, contact us at alldigitalland@outlook.com or +1 (754) 230-0884.
+        </p>
+        <button id="accept-consent">Accept</button>
+    </div>
+
+    <!-- Inline JS for settings page -->
+    <script>
+        // Simple Consent Banner Logic (Self-contained)
+        document.addEventListener('DOMContentLoaded', () => {
+            const consentBanner = document.getElementById('consent-banner');
+            if (!consentBanner) return;
+            const acceptButton = document.getElementById('accept-consent');
+            if (!acceptButton) { console.error('Accept button not found.'); return; }
+            if (localStorage.getItem('cookieConsent') !== 'true') {
+                consentBanner.style.display = 'block';
+            }
+            acceptButton.addEventListener('click', () => {
+                localStorage.setItem('cookieConsent', 'true');
+                consentBanner.style.display = 'none';
+            });
+        });
+    </script>
+</body> 

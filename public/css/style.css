@@ -49,4 +49,46 @@
     color: #666;
     display: block;
 }
-/* END ADDED */ 
+/* END ADDED */
+
+/* Simple Consent Banner Styles */
+#consent-banner {
+  position: fixed;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 600px;
+  background-color: #f1f1f1;
+  border: 1px solid #ccc;
+  padding: 15px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  z-index: 1000;
+  text-align: center;
+  font-size: 14px;
+  border-radius: 5px;
+}
+
+#consent-banner p {
+  margin: 0 0 10px 0;
+  line-height: 1.4;
+}
+
+#consent-banner a {
+  color: #007bff;
+  text-decoration: underline;
+}
+
+#consent-banner button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+#consent-banner button:hover {
+  background-color: #0056b3;
+} 
