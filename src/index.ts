@@ -16,7 +16,7 @@ import { parse } from 'url'; // Added import
 import { Buffer } from 'buffer'; // Added import
 
 // Флаг для временного отключения функций телефонии
-const TELEPHONY_ENABLED = false; // временно отключено до восстановления Twilio
+const TELEPHONY_ENABLED = true; // Re-enabled telephony
 
 // Load environment variables
 dotenv.config();
@@ -620,48 +620,26 @@ const handleIncomingCall: RequestHandler = (req, res, next) => {
 };
 
 // Handle voice webhook
-app.post('/voice', (req, res) => {
-  console.log('Received voice webhook request:', {
-    headers: req.headers,
-    body: req.body,
-    timestamp: new Date().toISOString()
-  });
-
+app.post('/api/voice', (req, res) => {
+  console.log('Received /api/voice webhook request:', req.body);
   const twiml = new VoiceResponse();
-  
-  // Add greeting message
-  twiml.say({
-    voice: 'alice',
-    language: 'ru-RU'
-  }, 'Здравствуйте, вы позвонили в TalkHint. Пожалуйста, говорите после сигнала.');
-  
-  // Add recording with transcription
-  twiml.record({
-    timeout: 5,
-    maxLength: 30,
+  twiml.say('Hello, welcome to TalkHint. Please speak after the beep.');
+  // Example: Record user input
+  twiml.record({ 
+    action: '/api/recording-complete', // Example action URL
+    maxLength: 30, 
     transcribe: true,
-    transcribeCallback: `${process.env.WEBHOOK_URL}/api/transcription-complete`,
-    action: `${process.env.WEBHOOK_URL}/api/recording-complete`,
-    method: 'POST'
+    transcribeCallback: '/api/transcription-complete' // Example transcription URL
   });
-  
-  const response = twiml.toString();
-  console.log('Sending TwiML response:', response);
-  
+  twiml.hangup(); // End call after recording or if nothing is said
+
   res.type('text/xml');
-  res.status(200).send(response);
+  res.send(twiml.toString());
 });
 
 // Handle call status updates
 const handleCallStatusLogic: RequestHandler = (req, res, next) => {
-  if (!TELEPHONY_ENABLED) {
-    console.log('[DISABLED] Received /call-status request, returning OK.');
-    res.status(200).send('OK');
-    return;
-  }
-
   console.log('Received call status update:', {
-    headers: req.headers,
     body: req.body,
     timestamp: new Date().toISOString()
   });
@@ -734,53 +712,47 @@ const handleCallStatusLogic: RequestHandler = (req, res, next) => {
 };
 
 app.post('/call-status', (req, res, next) => {
-  if (!TELEPHONY_ENABLED) {
-    console.log('[DISABLED] Received /call-status request, returning OK.');
-    res.status(200).send('OK');
-    return;
-  }
-  // Call the actual logic if enabled
   handleCallStatusLogic(req, res, next);
 });
 
 // Handle recording status updates
 const handleRecordingStatus: RequestHandler = async (req, res, next) => {
-  try {
-    const {
-      RecordingSid,
-      RecordingUrl,
-      RecordingStatus,
-      RecordingDuration,
-      RecordingChannels,
-      RecordingSource,
-      RecordingErrorCode,
-      RecordingErrorMsg,
-    } = req.body;
+  console.log('Received recording status update:', {
+    body: req.body,
+    timestamp: new Date().toISOString()
+  });
+  
+  const {
+    RecordingSid,
+    RecordingUrl,
+    RecordingStatus,
+    RecordingDuration,
+    RecordingChannels,
+    RecordingSource,
+    RecordingErrorCode,
+    RecordingErrorMsg,
+  } = req.body;
+  
+  console.log(`Recording ${RecordingSid} status: ${RecordingStatus}`);
+  
+  if (RecordingStatus === 'completed') {
+    // Download the recording
+    const recordingPath = path.join(__dirname, '../data/recordings', `${RecordingSid}.wav`);
     
-    console.log(`Recording ${RecordingSid} status: ${RecordingStatus}`);
-    
-    if (RecordingStatus === 'completed') {
-      // Download the recording
-      const recordingPath = path.join(__dirname, '../data/recordings', `${RecordingSid}.wav`);
-      
-      // Ensure the recordings directory exists
-      if (!fs.existsSync(path.dirname(recordingPath))) {
-        fs.mkdirSync(path.dirname(recordingPath), { recursive: true });
-      }
-      
-      // Download the recording
-      const response = await fetch(RecordingUrl);
-      const buffer = await response.arrayBuffer();
-      fs.writeFileSync(recordingPath, Buffer.from(buffer));
-      
-      console.log(`Recording saved to ${recordingPath}`);
+    // Ensure the recordings directory exists
+    if (!fs.existsSync(path.dirname(recordingPath))) {
+      fs.mkdirSync(path.dirname(recordingPath), { recursive: true });
     }
     
-    res.sendStatus(200);
-  } catch (error) {
-    console.error('Error handling recording status:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    // Download the recording
+    const response = await fetch(RecordingUrl);
+    const buffer = await response.arrayBuffer();
+    fs.writeFileSync(recordingPath, Buffer.from(buffer));
+    
+    console.log(`Recording saved to ${recordingPath}`);
   }
+  
+  res.sendStatus(200);
 };
 
 // Get active calls
