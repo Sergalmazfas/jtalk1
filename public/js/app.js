@@ -333,4 +333,43 @@ class JTalk1 {
 // Initialize the application when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.jtalk1 = new JTalk1();
+});
+
+function acceptConsent() {
+    localStorage.setItem("cookieConsent", "true");
+    const banner = document.getElementById("consent-banner");
+    if (banner) banner.style.display = "none";
+    // ++ Enable phone input directly ++
+    const phoneInput = document.getElementById('phoneNumber');
+    if (phoneInput) {
+        phoneInput.disabled = false;
+        console.log('Phone input enabled after consent.');
+    } else {
+        console.warn('phoneNumber input not found when enabling after consent.');
+    }
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+    const banner = document.getElementById("consent-banner");
+    const phoneInput = document.getElementById('phoneNumber'); // Find phone input
+
+    if (localStorage.getItem("cookieConsent") !== "true") {
+        if (banner) banner.style.display = "block";
+        // ++ Disable phone input directly ++
+        if (phoneInput) {
+            phoneInput.disabled = true;
+            console.log('Phone input disabled until consent.');
+        } else {
+            console.warn('phoneNumber input not found for initial disabling.');
+        }
+    } else {
+        if (banner) banner.style.display = "none";
+        // ++ Enable phone input directly if consent already given ++
+        if (phoneInput) {
+            phoneInput.disabled = false;
+            console.log('Phone input enabled on load (consent found).');
+        } else {
+            console.warn('phoneNumber input not found for initial enabling.');
+        }
+    }
 }); 
