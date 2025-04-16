@@ -800,5 +800,21 @@
     </footer>
     <!-- END ADDED Footer -->
 
+    <!-- Simple Consent Banner -->
+    <div id="consent-banner" style="position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid #ccc; padding: 15px; text-align: center; z-index: 9999; display: none; /* Initially hidden, shown by JS */">
+      <p style="font-size: 14px; margin-bottom: 10px;">
+        By continuing to use this site, you agree to our
+        <a href="/terms" target="_blank">Terms of Service</a>,
+        <a href="/privacy" target="_blank">Privacy Policy</a>, and
+        <a href="/call-policy" target="_blank">Call Policy</a>.
+        This service is provided by All Digital Land LLC. No calls are recorded.
+        For questions, contact us at +1 (754) 230-0884.
+      </p>
+      <button onclick="acceptConsent()" style="padding: 8px 16px;">Accept</button>
+    </div>
+
+    <!-- Load app.js for consent logic -->
+    <script src="/js/app.js"></script>
+
 </body>
 </html> 
