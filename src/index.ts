@@ -778,17 +778,6 @@ const handleGetCall: RequestHandler = (req, res, next) => {
   res.json({ callSid, ...call });
 };
 
-// Handle voice fallback webhook
-const handleVoiceFallback: RequestHandler = (req, res, next) => {
-  const twiml = new VoiceResponse();
-  
-  // Add a simple fallback message
-  twiml.say('We are experiencing technical difficulties. Please try again later.');
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
-};
-
 // Handle transcription complete webhook
 const handleTranscriptionComplete: RequestHandler = (req, res, next) => {
   try {
@@ -829,7 +818,6 @@ router.post('/call', async (req, res) => {
 
 // Handle incoming calls
 router.post('/call', handleIncomingCall);
-router.post('/voice', handleVoiceFallback);
 router.post('/call-status', handleCallStatusLogic);
 router.post('/recording-status', handleRecordingStatus);
 router.post('/transcription-complete', handleTranscriptionComplete);
