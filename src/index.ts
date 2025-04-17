@@ -864,6 +864,17 @@ app.post('/twilio-webhook-fallback', (req, res) => {
   res.send(twiml.toString());
 });
 
+// --- ADDED: Telnyx Webhook Handler ---
+app.post('/telnyx-webhook', (req, res) => {
+  console.log('[Telnyx Webhook] Received request:');
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Body:', JSON.stringify(req.body, null, 2));
+
+  // For now, just acknowledge receipt
+  res.sendStatus(200); 
+});
+// --- END Telnyx Webhook Handler ---
+
 // Start the server
 if (process.env.NODE_ENV === 'production') {
   server.listen(port, host, () => {
